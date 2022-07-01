@@ -1,0 +1,220 @@
+@charset "UTF-8";
+
+/* fakecss:/home/osmarks/Programming/minoteaur-8/client/IconHeader.esbuild-svelte-fake-css */
+h1.svelte-1a8wdpe.svelte-1a8wdpe {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+h1.svelte-1a8wdpe img.svelte-1a8wdpe {
+  height: 1.25em;
+}
+
+/* fakecss:/home/osmarks/Programming/minoteaur-8/client/Loading.esbuild-svelte-fake-css */
+.spinner.svelte-15te7uy {
+  color: black;
+}
+.spinner.svelte-15te7uy:before {
+  animation: svelte-15te7uy-textSpinner 0.8s linear infinite;
+  content: "\280b";
+  margin-right: 0.5em;
+  padding-top: 0.5em;
+}
+@keyframes svelte-15te7uy-textSpinner {
+  10% {
+    content: "\2819";
+  }
+  20% {
+    content: "\2839";
+  }
+  30% {
+    content: "\2838";
+  }
+  40% {
+    content: "\283c";
+  }
+  50% {
+    content: "\2834";
+  }
+  60% {
+    content: "\2826";
+  }
+  70% {
+    content: "\2827";
+  }
+  80% {
+    content: "\2807";
+  }
+  90% {
+    content: "\280f";
+  }
+}
+
+/* fakecss:/home/osmarks/Programming/minoteaur-8/client/Error.esbuild-svelte-fake-css */
+.error.svelte-jra88m {
+  background: salmon;
+  border: 1px solid red;
+  padding: 0.5em;
+  margin: 0.5em;
+  color: black;
+}
+
+/* fakecss:/home/osmarks/Programming/minoteaur-8/client/LargeButton.esbuild-svelte-fake-css */
+button.svelte-15cbyli {
+  border: none;
+  padding: 0.75em;
+  background: gray;
+  text-align: center;
+  text-decoration: none;
+  color: black;
+  display: inline-block;
+  font-size: 1rem;
+}
+button.svelte-15cbyli:hover {
+  background-image: linear-gradient(rgba(0, 0, 0, 0.2), rgba(0, 0, 0, 0.2));
+}
+
+/* fakecss:/home/osmarks/Programming/minoteaur-8/client/Edit.esbuild-svelte-fake-css */
+textarea.svelte-1bue60s.svelte-1bue60s {
+  resize: vertical;
+  width: 100%;
+  height: 70vh;
+  border: 1px solid gray;
+}
+.title.svelte-1bue60s.svelte-1bue60s {
+  width: 100%;
+  font-size: 1.2em;
+}
+progress.svelte-1bue60s.svelte-1bue60s {
+  width: 100%;
+}
+.file.svelte-1bue60s.svelte-1bue60s {
+  max-width: 40em;
+}
+.file.svelte-1bue60s.svelte-1bue60s,
+.file.svelte-1bue60s .info.svelte-1bue60s {
+  margin-bottom: 0.5em;
+}
+
+/* fakecss:/home/osmarks/Programming/minoteaur-8/client/Index.esbuild-svelte-fake-css */
+h1.svelte-1r6p9et {
+  color: green;
+}
+
+/* fakecss:/home/osmarks/Programming/minoteaur-8/client/App.esbuild-svelte-fake-css */
+* {
+  box-sizing: border-box;
+}
+html {
+  scrollbar-color: black lightgray;
+}
+body {
+  font-family:
+    "Fira Sans",
+    "Noto Sans",
+    "Segoe UI",
+    Verdana,
+    sans-serif;
+  font-weight: 300;
+}
+strong {
+  font-weight: bold;
+}
+h1 {
+  border-bottom: 1px solid gray;
+  margin: 0;
+  margin-bottom: 0.5em;
+  font-weight: 500;
+}
+h2 {
+  border-bottom: 1px solid gray;
+  margin: 0;
+  margin-bottom: 0.5em;
+  font-weight: 500;
+}
+h3 {
+  border-bottom: 1px solid gray;
+  margin: 0;
+  margin-bottom: 0.5em;
+  font-weight: 500;
+}
+h4 {
+  border-bottom: 1px solid gray;
+  margin: 0;
+  margin-bottom: 0.5em;
+  font-weight: 500;
+}
+h5 {
+  border-bottom: 1px solid gray;
+  margin: 0;
+  margin-bottom: 0.5em;
+  font-weight: 500;
+}
+h6 {
+  border-bottom: 1px solid gray;
+  margin: 0;
+  margin-bottom: 0.5em;
+  font-weight: 500;
+}
+ul {
+  list-style-type: square;
+  padding: 0;
+  padding-left: 1em;
+}
+a.wikilink {
+  text-decoration: none;
+  color: #0165fc;
+  font-style: italic;
+}
+a.wikilink:hover {
+  text-decoration: underline;
+}
+a.wikilink.nonexistent {
+  color: red;
+}
+.error {
+  color: red;
+}
+main.svelte-94yc43.svelte-94yc43 {
+  display: flex;
+}
+.navigation.svelte-94yc43.svelte-94yc43,
+.meta.svelte-94yc43.svelte-94yc43 {
+  flex-shrink: 0;
+  width: 30em;
+}
+.navigation.svelte-94yc43.svelte-94yc43 {
+  margin-right: 8px;
+}
+.navigation.search-mode.svelte-94yc43.svelte-94yc43 {
+  width: 100%;
+}
+.navigation.search-mode.svelte-94yc43 input[type=search].svelte-94yc43 {
+  font-size: 1.5em;
+}
+.meta.svelte-94yc43.svelte-94yc43 {
+  margin-left: 8px;
+}
+.main-ui.svelte-94yc43.svelte-94yc43 {
+  width: 100%;
+}
+input[type=text] {
+  border: 1px solid gray;
+}
+button {
+  border: 1px solid gray;
+  margin-left: -1px;
+}
+img {
+  max-width: 100%;
+}
+ul {
+  margin: 0;
+}
+input[type=search].svelte-94yc43.svelte-94yc43 {
+  width: 100%;
+}
+.result-page.svelte-94yc43.svelte-94yc43 {
+  margin-top: 1em;
+  word-wrap: break-word;
+}

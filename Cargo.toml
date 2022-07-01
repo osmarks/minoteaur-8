@@ -1,0 +1,29 @@
+[package]
+name = "minoteaur"
+version = "0.8.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+axum = "0.4"
+tokio = { version = "1.0", features = ["full"] }
+tracing = "0.1"
+tracing-subscriber = { version="0.3", features = ["env-filter"] }
+tower-http = { version = "0.2.0", features = ["fs", "trace", "add-extension"] }
+rusty_ulid = "1"
+serde = { version = "1.0", features = ["derive"] }
+chrono = { version = "0.4", features = ["serde"] }
+sqlx = { version = "0.5", features = [ "runtime-tokio-rustls", "sqlite", "chrono", "migrate" ] }
+anyhow = "1"
+rmp-serde = "1"
+thiserror = "1"
+futures-util = "0.3"
+pulldown-cmark = { version = "0.9.1", default-features = false, features = ["simd"] }
+regex = "1.5"
+lazy_static = "1"
+smallvec = "1"
+percent-encoding = "2"
+inlinable_string = "0.1"
+unicode-segmentation = "1.9"
+serde_with = "1"
