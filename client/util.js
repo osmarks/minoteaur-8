@@ -1,16 +1,19 @@
-import dayjs from "dayjs"
+import { format, formatDistanceToNowStrict } from "date-fns"
+import localforage from "localforage"
 
 export let setRoute = (...parts) => {
     window.location.hash = "#/" + parts.map(encodeURIComponent).join("/")
 }
 
-export let formatDate = dt => dayjs(dt).format("YYYY-MM-DD HH:mm:ss")
+export let formatDateRelative = dt => formatDistanceToNowStrict(dt, { addSuffix: true }) 
+export let formatDate = dt => `${format(dt, "yyyy-MM-dd HH:mm:ss")} (${formatDateRelative(dt)})`
 
 const metricPrefixes = ["", "k", "M", "G", "T", "P", "E", "Z", "Y"]
 export const applyMetricPrefix = (x, unit) => {
-    let exp = Math.floor(Math.log10(x) / 3)
+    let log = Math.log10(x)
+    let exp = x !== 0 ? Math.floor(log / 3) : 0
     let val = x / Math.pow(10, exp * 3)
-    return val.toFixed(3) + metricPrefixes[exp] + unit
+    return (exp !== 0 ? val.toFixed(3 - (log - exp * 3)) : val) + metricPrefixes[exp] + unit
 }
 
 const keyboardShortcuts = {}
@@ -25,3 +28,17 @@ window.addEventListener("keydown", ev => {
         ev.preventDefault()
     }
 })
+
+export const draftsStorage = localforage.createInstance({
+    name: "drafts"
+})
+
+export const generalStorage = localforage.createInstance({
+    name: "general"
+})
+
+export const submitIfEnterKey = fn => ev => {
+    if (ev.key === "Enter") {
+        fn()
+    }
+}

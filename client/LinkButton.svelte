@@ -1,5 +1,5 @@
 <style lang="sass">
-    button
+    a
         border: none
         padding: 0.75em
         background: gray
@@ -11,12 +11,11 @@
         &:hover
             // very hacky way to make the button darker when hovered
             background-image: linear-gradient(rgba(0,0,0,.2), rgba(0,0,0,.2))
-        cursor: pointer
 </style>
 
 <script>
-    export let onclick
+    export let href
     export let color
 </script>
 
-<button on:click={onclick} style={`background-color: ${color}`}><slot /></button>
+<a href={href} style={`background-color: ${color}`}><slot /></a>

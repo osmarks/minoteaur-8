@@ -1,12 +1,14 @@
 use rusty_ulid::Ulid;
 use std::collections::{BTreeMap, HashSet, HashMap};
-use inlinable_string::{InlinableString, StringExt};
-use unicode_segmentation::UnicodeSegmentation;  
+use inlinable_string::InlinableString;
+use unicode_segmentation::UnicodeSegmentation;
 
 type Token = InlinableString;
 
 struct Document {
-    tokens: Vec<Token>
+    tokens: Vec<Token>,
+    counts: HashMap<Token, u64>,
+    breaks: Vec<(usize, usize)> // token index, byte offset
 }
 
 struct TokenInfo {
@@ -17,9 +19,10 @@ struct TokenInfo {
 pub struct Index {
     inverted_index: BTreeMap<Token, TokenInfo>,
     documents: HashMap<Ulid, Document>,
-    fuzzy_lookup: HashMap<Token, Vec<Token>>
+    total_document_length: u64
 }
 
+/*
 fn deletes(t: Token) -> HashSet<Token> {
     let mut out = HashSet::new();
     for (index, str) in t.grapheme_indices(true) {
@@ -36,28 +39,58 @@ fn deletes(t: Token) -> HashSet<Token> {
     out
 }
 
-fn deletes2(t: Token) -> HashSet<Token> {
-    let mut out = HashSet::with_capacity(t.len() * t.len());
+fn deletes2(t: Token) -> HashMap<Token, u8> {
+    let mut out = HashMap::with_capacity(t.len() * t.len());
     for x in deletes(t) {
-        out.insert(x.clone());
-        out.extend(deletes(x));
+        out.insert(x.clone(), 1);
+        out.extend(deletes(x).into_iter().map(|x| (x, 2)));
     }
     out
 }
+*/
+
+fn best_highlight_location(tokens: &HashMap<InlinableString, f64>, document: &Document) -> usize {
+    let mut scores: HashMap<usize, f64> = HashMap::new();
+    for (index, (token_index, offset)) in document.breaks.iter().enumerate() {
+        let end_token_index = document.breaks.get(index + 1).map(|(t, _)| *t).unwrap_or(document.tokens.len());
+        for token in &document.tokens[*token_index..end_token_index] {
+            if let Some(weight) = tokens.get(token) {
+                *scores.entry(*offset).or_default() += *weight;
+            }
+        }
+    }
+    scores.into_iter().max_by(|(_, sa), (_, sb)| sa.partial_cmp(sb).unwrap()).map(|(o, _score)| o).unwrap_or(0)
+}
 
 impl Index {
-    pub fn insert(&mut self, id: Ulid, doc: &str) {
+    pub fn insert(&mut self, id: Ulid, doc: Vec<(usize, String)>) {
         let mut counts = HashMap::new();
-        let tokens: Vec<InlinableString> = doc.unicode_words().map(|x| x.to_lowercase().into()).collect();
+        let tokens_with_offsets: Vec<(usize, InlinableString)> = doc.iter()
+            .flat_map(|(offset, text)| text.unicode_words().map(|x| (*offset, x.to_lowercase().into())))
+            .collect();
+        let tokens: Vec<InlinableString> = tokens_with_offsets.iter().map(|(_, t)| t.clone()).collect();
+        let mut breaks: Vec<(usize, usize)> = vec![];
+        for (index, (offset, _token)) in tokens_with_offsets.into_iter().enumerate() {
+            match breaks.last() {
+                Some((_, last_offset)) if *last_offset != offset => breaks.push((index, offset)),
+                None => breaks.push((index, offset)),
+                _ => ()
+            }
+        }
+        let document_len = tokens.len() as u64;
         // count frequencies of each token
         for token in tokens.iter() {
             *counts.entry(token.clone()).or_insert(0) += 1;
         }
+        let new_document = Document {
+            tokens,
+            counts: counts.clone(),
+            breaks
+        };
         // swap out document entry for new one
         if let Some(old_doc) = self.documents.get_mut(&id) {
-            let old_doc = std::mem::replace(old_doc, Document {
-                tokens
-            });
+            let old_doc = std::mem::replace(old_doc, new_document);
+            self.total_document_length -= old_doc.tokens.len() as u64;
             // undo changes made to inverted index
             let mut counts = HashMap::new();
             for token in old_doc.tokens.iter() {
@@ -69,7 +102,7 @@ impl Index {
                 info.frequency -= count;
             }
         } else {
-            self.documents.insert(id, Document { tokens });
+            self.documents.insert(id, new_document);
         }
         // update inverted index
         for (token, count) in counts {
@@ -78,39 +111,64 @@ impl Index {
                 frequency: 0
             });
             // newly added
-            if info.frequency == 0 {
-                let del = deletes2(token.clone());
-                for t in del {
-                    self.fuzzy_lookup.entry(t).or_insert_with(Vec::new).push(token.clone());
-                }
-            }
             info.documents.insert(id);
             info.frequency += count;
         }
+        self.total_document_length += document_len;
     }
 
-    pub fn search(&self, query: &str) -> HashSet<Ulid> {
-        let mut out = HashSet::new();
-        let mut query_tokens = HashSet::new();
-        query_tokens.extend(query.unicode_words().map(InlinableString::from));
-        for del in query_tokens.iter().flat_map(|x| deletes2(x.clone())).collect::<Vec<Token>>() {
-            if let Some(del) = self.fuzzy_lookup.get(&del) {
-                query_tokens.extend(del.iter().cloned());
+    pub fn search(&self, query_tokens: Vec<InlinableString>) -> Vec<(Ulid, f64, usize)> {
+        let mut tokens: HashMap<InlinableString, f64> = query_tokens.into_iter().map(|x| (x, 1.0)).collect();
+        for token in tokens.clone().keys() {
+            for other_token in self.inverted_index.keys() {
+                let distance = triple_accel::levenshtein(token.as_bytes(), other_token.as_bytes());
+                if distance > 0 && distance <= 3 {
+                    // Exponentially decrease ranking weighting with increased edit distance
+                    let new_weight = 1. / (distance as f64).exp();
+                    let weight = tokens.entry(other_token.clone()).or_default();
+                    if new_weight > *weight {
+                        *weight = new_weight;
+                    }
+                }
+            }
+            if !self.inverted_index.contains_key(token) {
+                tokens.remove(token);
             }
         }
-        for token in query_tokens {
-            if let Some(info) = self.inverted_index.get(&token) {
-                out.extend(info.documents.iter());
+        let cap_n = self.documents.len() as f64;
+        for (token, weight) in tokens.iter_mut() {
+            let n = self.inverted_index[token].documents.len() as f64;
+            // BM25 IDF component
+            let idf = ((cap_n - n + 0.5) / (n + 0.5)).ln_1p();
+            *weight *= idf;
+        }
+        let k_1 = 1.2;
+        let b = 0.75;
+        let mut documents = HashMap::new();
+        let avgdl = self.total_document_length as f64 / self.documents.len() as f64;
+        for (token, weight) in tokens.iter() {
+            for document in self.inverted_index[token].documents.iter() {
+                let doc = &self.documents[&document];
+                let len = doc.tokens.len() as f64;
+                let f = doc.counts[token] as f64;
+                // BM25 DF component
+                let df = (f * (k_1 + 1.0)) / (f + k_1 * (1.0 - b + b * (len / avgdl)));
+                *documents.entry(*document).or_default() += weight * df;
             }
         }
-        out
+        let mut result: Vec<(Ulid, f64, usize)> = documents
+            .into_iter()
+            .map(|(document_id, score)| (document_id, score, best_highlight_location(&tokens, &self.documents[&document_id])))
+            .collect();
+        result.sort_unstable_by(|(_, sa, _), (_, sb, _)| sb.partial_cmp(sa).unwrap());
+        result
     }
 
     pub fn new() -> Self {
         Index {
             inverted_index: BTreeMap::new(),
             documents: HashMap::new(),
-            fuzzy_lookup: HashMap::new()
+            total_document_length: 0
         }
     }
 }

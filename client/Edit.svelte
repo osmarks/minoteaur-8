@@ -5,10 +5,6 @@
         height: 70vh
         border: 1px solid gray
 
-    .title
-        width: 100%
-        font-size: 1.2em
-
     progress
         width: 100%
 
@@ -23,21 +19,18 @@
     import Loading from "./Loading.svelte"
     import Error from "./Error.svelte"
     import rpc from "./rpc.js"
-    import { setRoute, formatDate, applyMetricPrefix, registerShortcut } from "./util.js"
+    import { setRoute, formatDate, applyMetricPrefix, registerShortcut, draftsStorage } from "./util.js"
     import LargeButton from "./LargeButton.svelte"
     import IconHeader from "./IconHeader.svelte"
-    import InteractiveListPage from "./InteractiveListPage.svelte"
+    import LinkButton from "./LinkButton.svelte";
 
     export let id
-    export let title
     export let page
 
-    let contentObj = page?.content
-    let contentType = page?.content && Object.keys(page?.content)[0]
-    let content = page?.content?.Markdown || ""
+    let content = page.content
     let error
-    let newID
     let keypresses = 0
+    let draft
 
     const wordCount = s => {
         let words = 0
@@ -48,17 +41,16 @@
     }
     const lineCount = s => s.split("\n").length
 
+    let timer
     let saving = false
     const save = async () => {
         if (saving) { return }
         saving = true
         error = null
+        draft = null
+        if (timer) clearInterval(timer)
         try {
-            if (id) {
-                await rpc("UpdatePage", [id, { Markdown: content }])
-            } else {
-                newID = await rpc("CreatePage", { content, title })
-            }
+            await rpc("UpdatePage", [id, content])
             error = null
             saving = false
             return true
@@ -70,57 +62,50 @@
     }
 
     const done = async () => {
-        if (await save()) setRoute("page", newID || id)
+        if (await save()) setRoute("page", id)
     }
 
-    let nextID = 0
-    let pendingFiles = {}
+    let uploadState = null
 
     const extantFiles = {}
 
-    if (page?.files) {
-        for (const file of page.files) {
-            extantFiles[file.id] = file
-            file.path = `/file/${file.page}/${encodeURIComponent(file.filename)}`
-            file.type = file.mime_type.split("/")[0]
-        }
+    for (const file of Object.values(page.files)) {
+        extantFiles[file.filename] = file
+        file.path = `/file/${file.page}/${encodeURIComponent(file.filename)}`
+        file.type = file.mime_type.split("/")[0]
     }
 
-    /*
-    const upload = file => {
-        let thisID = nextID
-        pendingFiles[thisID] = { file, progress: 0 }
-        nextID++
+    const upload = files => {
+        uploadState = { progress: 0 }
 
         let data = new FormData()
-        data.append("page", id)
-        data.append("file", file)
+        for (const file of files) {
+            data.set(file.name, file)
+        }
 
         let request = new XMLHttpRequest()
-        request.responseType = "arraybuffer"
-        request.open("POST", "/upload")
+        request.open("POST", "/api/upload/" + id)
 
         request.upload.addEventListener("progress", e => {
             pendingFiles[thisID].progress = e.loaded / e.total
         });
 
-        /*
         request.addEventListener("load", e => {
             if (request.status !== 200) {
-                pendingFiles[thisID].error = request.status
+                uploadState.error = request.status
+                console.log(request.response)
             } else {
-                const ret = decode(request.response)
-                const file = { ...ret[3], filename: ret[2] }
-                file.path = `/file/${id}/${encodeURIComponent(file.filename)}`
-                file.type = file.mime_type.split("/")[0]
-                extantFiles[ret[1]] = file
-                delete pendingFiles[thisID]
-                pendingFiles = pendingFiles
+                const ret = JSON.parse(request.response)
+                for (const file of ret) {
+                    file.path = `/file/${id}/${encodeURIComponent(file.filename)}`
+                    file.type = file.mime_type.split("/")[0]
+                    extantFiles[file.filename] = file
+                }
+                uploadState = null
             }
         });
         request.send(data)
     }
-    */
 
     const addFile = async () => {
         const input = document.createElement("input")
@@ -128,10 +113,12 @@
         input.multiple = true
         input.click()
         input.oninput = ev => {
-            for (const file of ev.target.files) {
-                upload(file)
-            }
+            upload(Array.from(ev.target.files))
         }
+    }
+
+    const setIcon = async icon => {
+        await rpc("SetIcon", [id, icon])
     }
 
     let editorTextarea
@@ -144,15 +131,27 @@
         editorTextarea.selectionEnd = editorTextarea.selectionStart = start.length
     }
 
-    const deleteFile = async id => {
-        await rpc("delete_file", id)
-        delete extantFiles[id]
+    const deleteFile = async filename => {
+        await rpc("DeleteFile", [id, filename])
+        delete extantFiles[filename]
         extantFiles = extantFiles
     }
-    const setAsIcon = async filename => {
-        await rpc("set_as_icon", id, filename)
-        page.icon_filename = filename
-        page = page
+
+    let lastDraft
+    const runSave = () => {
+        const now = Date.now()
+        lastDraft = now
+        console.log("saved draft")
+        draftsStorage.setItem(id, { ts: now, content })
+    }
+    const saveDraft = () => {
+        const now = Date.now()
+        if (!lastDraft || (now - lastDraft) > 5000) {
+            runSave()
+        } else {
+            if (timer) clearInterval(timer)
+            timer = setTimeout(runSave, 5000)
+        }
     }
 
     const textareaKeypress = ev => {
@@ -192,6 +191,7 @@
         }
 
         keypresses++
+        saveDraft()
     }
     const textareaKeydown = ev => {
         const editor = ev.target
@@ -231,80 +231,108 @@
                 ev.preventDefault()
             }
         }
+        saveDraft()
+    }
+
+    draftsStorage.getItem(id).then(newDraft => {
+        if (newDraft) {
+            if (!page || !page.updated || page.updated < newDraft.ts) {
+                console.log("draft from", formatDate(newDraft.ts))
+                draft = newDraft
+            }
+        }
+    })
+
+    const loadDraft = () => {
+        if (draft) {
+            content = draft.content
+        }
     }
 
     registerShortcut("Enter", done)
     registerShortcut("s", save)
 </script>
 
-{#if page}
-    <a href="#/page/{id}/">View</a>
-    <IconHeader page={page}>Editing {page.title}</IconHeader>
-{:else}
-    <input class="title" bind:value={title} />
-{/if}
-{#if contentType === "Markdown"}
-    <textarea class="editor" bind:value={content} on:keydown={textareaKeydown} on:keypress={textareaKeypress} bind:this={editorTextarea}></textarea>
-{:else if contentType === "List"}
-    <InteractiveListPage items={content} />
-{:else}
-    invalid content type
-{/if}
+<nav>
+    <LinkButton href="#/page/{id}/" color="#76cd26">View</LinkButton>
+    <LinkButton href="#/page/{id}/revisions" color="#f97306">Revisions</LinkButton>
+</nav>
+<IconHeader page={page}>Editing {page.title}</IconHeader>
+<textarea class="editor" bind:value={content} on:keydown={textareaKeydown} on:keypress={textareaKeypress} bind:this={editorTextarea}></textarea>
 <LargeButton onclick={save} color="#06c2ac">Save</LargeButton>
 <LargeButton onclick={done} color="#bf77f6">Done</LargeButton>
 <LargeButton onclick={addFile} color="#fcb001">Add File</LargeButton>
+{#if draft}
+    <LargeButton onclick={loadDraft} color="#ff796c">Load Draft</LargeButton>
+{/if}
 {#if saving}
     <Loading operation="Saving" />
 {/if}
 {#if error}
 {@debug error}
-    {#if error.type === "Conflict"}
-        <Error>Page already exists: <a class="wikilink" href="#/page/{error.arg}">{title}</a>.</Error>
-    {:else}
-        <Error>{error}</Error>
-    {/if}
+    <Error>{error}</Error>
 {/if}
 <div class="info">
-    <div>{keypresses} keypresses</div>
-    <div>{content.length} characters</div>
-    <div>{wordCount(content)} words</div>
-    <div>{lineCount(content)} lines</div>
+    <div>{applyMetricPrefix(keypresses, "")} keypresses</div>
+    <div>{applyMetricPrefix(content.length, " ")} chars</div>
+    <div>{applyMetricPrefix(wordCount(content), "")} words</div>
+    <div>{applyMetricPrefix(lineCount(content), "")} lines</div>
 </div>
-<ul class="files">
-    {#each Object.values(pendingFiles) as file}
-        <li>
-            {#if file.error}
-                <div class="error">Failed, code {file.error}</div>
+{#if uploadState}
+    {#if uploadState.error}
+        <div class="error">Failed to upload: code {uploadState.error}</div>
+    {:else if uploadState.progress}
+        <div><progress min=0 max=1 value={uploadState.progress}></progress></div>
+    {/if}
+{/if}
+{#if draft}
+    <div>
+        Draft from {formatDate(draft.ts)}.
+    </div>
+{/if}
+{#if Object.entries(extantFiles).length > 0}
+<h2>Files</h2>
+Page icon:
+    <select bind:value={page.icon_filename} on:blur={ev => setIcon(ev.target.value)}>
+        <option value={null}>(none)</option>
+        {#each Object.values(extantFiles) as file}
+            {#if file.type === "image"}
+                <option value={file.filename}>{file.filename}</option>
             {/if}
-            <div><progress min=0 max=1 value={file.progress}></progress></div>
-            <span>{file.file.name} - {formatDate(file.file.lastModified)} - {applyMetricPrefix(file.file.size, "B")}</span>
-        </li>
-    {/each}
+        {/each}
+    </select>
+{/if}
+<ul class="files">
     {#each Object.entries(extantFiles) as [id, file]}
-        <li class="file">
-            <div class="info">
-                <LargeButton onclick={() => deleteFile(id)} color="#ff5b00">Delete</LargeButton>
-                {#if file.type == "image"}
-                    <LargeButton onclick={() => setAsIcon(file.filename)} color="#75fd63">Make Icon</LargeButton>
-                {/if}
-                <!-- svelte-ignore a11y-invalid-attribute -->
-                <a href="" on:click|preventDefault={() => insertFileIntoDocument(file)}>{file.filename}</a>
-                <div>{file.mime_type}</div>
-                <div>{formatDate(file.upload_time)}</div>
-            </div>
-            <a href={file.path}>
-                {#if file.type == "image"}
-                    <img src={file.path} alt={file.filename} class="file" />
-                {:else if file.type == "audio"}
-                    <!-- svelte-ignore a11y-media-has-caption -->
-                    <audio src={file.path} alt={file.filename} class="file" controls />
-                {:else if file.type == "video"}
-                    <!-- svelte-ignore a11y-media-has-caption -->
-                    <video src={file.path} alt={file.filename} class="file" controls />
-                {:else}
-                    No preview available; click to view/download
-                {/if}
-            </a>
-        </li>
+        {#key id}
+            <li class="file">
+                <div class="info">
+                    <LargeButton onclick={() => deleteFile(id)} color="#ff5b00">Delete</LargeButton>
+                    <!-- svelte-ignore a11y-invalid-attribute -->
+                    <a href="#" on:click|preventDefault={() => insertFileIntoDocument(file)}>{file.filename}</a>
+                    <ul>
+                        <li>Size: {applyMetricPrefix(file.size, "B")}</li>
+                        <li>MIME type: {file.mime_type}</li>
+                        <li>Uploaded: {formatDate(file.created)}</li>
+                    {#each Object.entries(file.metadata) as [key, value]}
+                        <li>{key}: {value}</li>
+                    {/each}
+                    </ul>
+                </div>
+                <a href={file.path}>
+                    {#if file.type == "image"}
+                        <img src={file.path} alt={file.filename} class="file" />
+                    {:else if file.type == "audio"}
+                        <!-- svelte-ignore a11y-media-has-caption -->
+                        <audio src={file.path} alt={file.filename} class="file" controls />
+                    {:else if file.type == "video"}
+                        <!-- svelte-ignore a11y-media-has-caption -->
+                        <video src={file.path} alt={file.filename} class="file" controls />
+                    {:else}
+                        No preview available; click to view/download
+                    {/if}
+                </a>
+            </li>
+        {/key}
     {/each}
 </ul>

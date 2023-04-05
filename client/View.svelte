@@ -1,15 +1,22 @@
 <script>
     import IconHeader from "./IconHeader.svelte"
-    import InteractiveListPage from "./InteractiveListPage.svelte"
+    import LinkButton from "./LinkButton.svelte"
+    import { formatDate } from "./util.js"
 
     export let id
     export let page
 </script>
 
-<a href="#/page/{id}/edit">Edit</a>
+<nav>
+    <LinkButton href="#/page/{id}/edit" color="#75bbfd">Edit</LinkButton>
+    <LinkButton href="#/page/{id}/revisions" color="#f97306">Revisions</LinkButton>
+</nav>
 <IconHeader page={page}>{page.title}</IconHeader>
-{#if page.rendered_content.Markdown}
-    <div>{@html page.rendered_content.Markdown}</div>
-{:else if page.rendered_content.List}
-    <InteractiveListPage items={page.rendered_content.List}></InteractiveListPage>
+{#if page.revision}
+    <div>Version from {formatDate(page.revision.time)}.</div>
+    <details>
+        <summary>View source</summary>
+        <pre><code>{page.content}</code></pre>
+    </details>
 {/if}
+{@html page.rendered_content}

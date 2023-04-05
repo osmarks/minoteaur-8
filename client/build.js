@@ -2,6 +2,9 @@ const esbuild = require("esbuild")
 const sveltePlugin = require("esbuild-svelte")
 const path = require("path")
 const { sass } = require("svelte-preprocess-sass")
+const fs = require("fs")
+
+fs.copyFile(path.join(__dirname, "icon.png"), path.join(__dirname, "../static/icon.png"), () => {})
 
 esbuild
     .build({
@@ -14,6 +17,11 @@ esbuild
                 style: sass()
             }
         })],
+        loader: {
+            ".woff": "file",
+            ".woff2": "file",
+            ".ttf": "file"
+        },
         logLevel: "info",
         watch: process.argv.join(" ").includes("watch")
     })

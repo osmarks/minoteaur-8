@@ -1,2 +1,6 @@
 /target
 /node_modules
+files
+*.sqlite3
+*.sqlite3-*
+static/*

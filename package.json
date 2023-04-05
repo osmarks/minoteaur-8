@@ -6,6 +6,8 @@
     "svelte-preprocess-sass": "^1.0.0"
   },
   "dependencies": {
-    "dayjs": "^1.10.6"
+    "date-fns": "^2.28.0",
+    "katex": "^0.16.0",
+    "localforage": "^1.10.0"
   }
 }

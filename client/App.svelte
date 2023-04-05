@@ -47,16 +47,66 @@
             text-decoration: underline
     \:global(a.wikilink.nonexistent)
         color: red
+    \:global(a.wikilink.tag)
+        color: limegreen
 
     \:global(.error)
         color: red
+
+    \:global(ul.inline li)
+        display: inline
+    \:global(ul.inline li:not(:last-child)::after)
+        content: ", "
+    \:global(ul.inline)
+        padding: 0
+    \:global(ul.very-inline)
+        display: inline
+
+    \:global(input[type=text])
+        border: 1px solid gray
+
+    \:global(button)
+        border: 1px solid gray
+        margin-left: -1px
+
+    \:global(ul)
+        margin: 0
+
+    \:global(.markdown)
+        \:global(img)
+            max-width: 100%
+        \:global(blockquote)
+            border-left: 0.2em solid black
+            margin-left: 0
+            padding-left: 0.3em
+        \:global(.captioned-image-block)
+            border: 1px solid gray
+            padding: 0.5em
+            background: lightgray
+            display: inline-block
+            margin: -1px
+            width: calc(50% - 1px)
+            min-width: 15em
+            \:global(img)
+                width: 100%
+        \:global(.ralign)
+            text-align: right
+    \:global(.snippet p)
+        margin: 0
+
+    \:global(nav)
+        margin-bottom: 0.5em
+
+    \:global(.footnote-definition > p)
+        display: inline-block
 
     main
         display: flex
 
     .navigation, .meta
         flex-shrink: 0
-        width: 30em
+        width: 25%
+        min-width: 10em
     .navigation
         margin-right: 8px
         &.search-mode
@@ -69,25 +119,15 @@
     .main-ui
         width: 100%
 
-    \:global(input[type=text])
-        border: 1px solid gray
-
-    \:global(button)
-        border: 1px solid gray
-        margin-left: -1px
-
-    \:global(img)
-        max-width: 100%
-
-    \:global(ul)
-        margin: 0
-
     input[type=search]
         width: 100%
 
     .result-page
         margin-top: 1em
         word-wrap: break-word
+
+    .search-input
+        margin-top: 1rem
 </style>
 
 <script>
@@ -95,9 +135,12 @@
 
     import View from "./View.svelte"
     import Edit from "./Edit.svelte"
+    import Create from "./Create.svelte"
     import Index from "./Index.svelte"
-    import IconHeader from "./IconHeader.svelte"
-    import { registerShortcut } from "./util.js"
+    import RevisionHistory from "./RevisionHistory.svelte"
+    import ShortPageDescription from "./ShortPageDescription.svelte"
+    import { registerShortcut, generalStorage } from "./util.js"
+    import LinkButton from "./LinkButton.svelte"
 
     import rpc from "./rpc.js"
     import MetadataSidebar from "./MetadataSidebar.svelte"
@@ -110,9 +153,24 @@
     var searchMode = false
     var currentPage
 
-    const parseURL = () => window.location.hash.slice(1).split("/").filter(x => x !== "").map(decodeURIComponent)
-    const unparseURL = parts => { window.location.hash = "/" + parts.filter(x => x != "").map(encodeURIComponent).join("/") }
+    var recent = []
 
+    generalStorage.getItem("recent").then(x => {
+        recent = x || []
+    })
+
+    const parseURL = () => {
+        const [hash, query] = window.location.hash.slice(1).split("?")
+        const parts = hash.split("/").filter(x => x !== "").map(decodeURIComponent)
+        if (query) {
+            query.split("&").map(x => x.split("=").map(decodeURIComponent)).forEach(([k, v]) => parts[k] = v)
+        }
+        return parts
+    }
+    const unparseURL = (parts, query = {}) => { window.location.hash = "/" + parts.filter(x => x != "").map(encodeURIComponent).join("/") }
+
+    const setTitle = title => document.title = `${title} - Minoteaur`
+    
     const updateRoute = async () => {
         const parts = parseURL()
         console.log(parts)
@@ -120,25 +178,64 @@
         currentPage = null
         if (parts[0] === "page") {
             currentPage = parts[1]
-            page = await rpc("GetPage", parts[1])
+            let revisionID = null
+            if (parts[2] === "revision" && parts[3]) {
+                revisionID = parts[3]
+            }
+            page = await rpc("GetPage", [parts[1], revisionID])
+            if (page) {
+                recent = recent.filter(([a, b]) => a !== currentPage)
+                recent.push([ currentPage, page.title ])
+                if (recent.length > 8) recent.shift()
+                generalStorage.setItem("recent", recent)
+                recent = recent
+            }
             params = { id: currentPage, page }
             page.id = currentPage
-            if (parts[2] === "edit") { child = Edit }
-            else { child = View }
+            if (parts[2] === "edit") {
+                child = Edit
+                setTitle(`${page.title} - Editing`)
+            }
+            else if (parts[2] === "revisions") {
+                revs = await rpc("GetRevisions", currentPage)
+                revs.sort((a, b) => b.time - a.time)
+                params.revs = revs
+                child = RevisionHistory
+                setTitle(`${page.title} - Revisions`)
+            }
+            else {
+                child = View
+                let title = page.title
+                if (revisionID) {
+                    title += " (old)"
+                }
+                setTitle(title)
+            }
         }
         else if (parts[0] === "search") {
             child = null
             page = null
             searchMode = true
+            if (parts[1]) {
+                searchQuery = parts[1]
+                await searchInputHandler()
+            }
+            setTitle("Search")
         }
         else if (parts[0] === "create") {
             page = null
             params = { title: parts[1] }
-            child = Edit
+            if (parts.tags) {
+                params.tags = parts.tags.split(",")
+            }
+            child = Create
+            setTitle(`Creating ${parts[1] || "page"}`)
         } else {
-            child = Index
             page = null
-            params = {}
+            const { recent_changes, random_pages, dead_links } =  await rpc("IndexPage", null)
+            params = { recentChanges: recent_changes.map(([revision, page]) => ({ ...revision, pageData: page })), randomPages: random_pages, deadLinks: dead_links }
+            child = Index
+            setTitle("Index")
         }
     }
 
@@ -160,17 +257,23 @@
         if (searchQuery) {
             searchResults = await rpc("Search", searchQuery)
         } else {
-            searchResults = []
+            searchResults = { title_matches: [], content_matches: [] }
         }
     }
 
     const searchKeypress = ev => {
         if (ev.key === "Enter" && searchResults) {
-            const results = searchResults.filter(x => x[0] !== currentPage)
+            const results = (ev.shiftKey ? searchResults.title_matches : searchResults.content_matches).filter(x => x[0] !== currentPage)
             if (results.length > 0) {
                 switchPage(results[0][0])
             }
         }
+    }
+
+    const reverse = xs => {
+        const xsprime = xs.map(x => x)
+        xsprime.reverse()
+        return xsprime
     }
 
     onMount(updateRoute)
@@ -185,34 +288,31 @@
 
 <main>
     <div class={"navigation " + (searchMode ? "search-mode" : "")}>
-        <a href="#/">Index</a>
-        <a href="#/search">Search</a>
-        <a href="#/page/2849188017017574009">C++ page</a>
-        <a href="#/create">Create page</a>
-        <input type="search" bind:value={searchQuery} on:input={searchInputHandler} on:keydown={searchKeypress} bind:this={searchInput} placeholder="Search">
+        <LinkButton href="#/" color="#5170d7">Index</LinkButton>
+        <LinkButton href="#/search" color="#fac205">Search</LinkButton>
+        <LinkButton href="#/create" color="#bc13fe">Create</LinkButton>
+        <div>
+            {#if recent}
+                Last: <ul class="inline very-inline">
+                    {#each reverse(recent) as r}
+                        <li><a class="wikilink" href={`#/page/${r[0]}`}>{r[1]}</a></li>
+                    {/each}
+                </ul>
+            {/if}
+        </div>
+        <input type="search" bind:value={searchQuery} on:input={searchInputHandler} on:keydown={searchKeypress} bind:this={searchInput} placeholder="Search" class="search-input">
         {#if searchResults}
+            <ul class="inline">
+                {#each searchResults.title_matches as [id, title]}
+                    <li><a class="wikilink" href={`#/page/${id}`}>{title}</a></li>
+                {/each}
+            </ul>
             <div class="result-pages">
-            <!--
-            {#each searchResults as page}
-            {#key page.id}
+                {#each searchResults.content_matches as [id, page]}
                 <div class="result-page">
-                    <IconHeader page={page} style={"font-size: 1.6em; margin-bottom: 0.2em;"}>
-                        <a class="wikilink" href={`#/page/${page.id}`}>{page.title}</a>
-                    </IconHeader>
-                    <div>
-                        {#each page.results as sent}
-                            <div style={`color: hsl(0, 0%, ${sent.score * -50 + 50}%)`}>{sent.text.slice(0, 256)}</div>
-                        {/each}
-                    </div>
+                    <ShortPageDescription page={page} />
                 </div>
-            {/key}
-            {/each}
-            -->
-            {#each searchResults as [id, title]}
-            <div>
-                <a class="wikilink" href={`#/page/${id}`}>{title}</a>
-            </div>
-            {/each}
+                {/each}
             </div>
         {/if}
     </div>
