@@ -4,3 +4,5 @@ files
 *.sqlite3
 *.sqlite3-*
 static/*
+minoteaur.sqlite3
+*.tar
