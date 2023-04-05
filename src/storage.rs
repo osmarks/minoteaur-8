@@ -118,8 +118,7 @@ pub struct MemoryStore {
     pub unresolved_links: HashMap<Slug, HashMap<Ulid, (String, usize)>>,
     pub tags: HashMap<String, HashSet<Ulid>>,
     pub page_revisions: HashMap<Ulid, Vec<Ulid>>,
-    pub revisions: BTreeMap<Ulid, RevisionHeader>,
-    pub recently_viewed: VecDeque<Ulid>
+    pub revisions: BTreeMap<Ulid, RevisionHeader>
 }
 pub struct DB {
     pub mem: MemoryStore,
@@ -140,8 +139,6 @@ enum Object {
     PageView(PageView)
 }
 
-const RECENTLY_VIEWED_LENGTH: usize = 8;
-
 impl DB {
     pub async fn init() -> Result<Self> {
         let pool = SqlitePoolOptions::new()
@@ -158,19 +155,11 @@ impl DB {
                 unresolved_links: HashMap::new(),
                 tags: HashMap::new(),
                 page_revisions: HashMap::new(),
-                revisions: BTreeMap::new(),
-                recently_viewed: VecDeque::new()
+                revisions: BTreeMap::new()
             }
         };
         db.preload().await.context("database integrity error")?;
         Ok(db)
-    }
-
-    fn update_recently_viewed(&mut self, page: Ulid) {
-        if self.mem.recently_viewed.len() == RECENTLY_VIEWED_LENGTH {
-            self.mem.recently_viewed.pop_front();
-        }
-        self.mem.recently_viewed.push_back(page);
     }
 
     async fn preload(&mut self) -> Result<()> {
@@ -195,9 +184,7 @@ impl DB {
                     self.mem.revisions.insert(id, rh);
                     self.mem.page_revisions.entry(page).or_default().push(id);
                 },
-                Object::PageView(v) => {
-                    self.update_recently_viewed(v.page);
-                }
+                Object::PageView(v) => ()
             }
         }
         // this has to be done after all pages have been loaded into memory, or links won't work right
@@ -474,8 +461,7 @@ impl DB {
     }
 
     pub async fn push_view(&mut self, page: Ulid) -> Result<()> {
-        self.update_recently_viewed(page);
-        self.write_object(page, Object::PageView(PageView { time: Utc::now(), page }), None).await?;
+        self.write_object(Ulid::generate(), Object::PageView(PageView { time: Utc::now(), page }), None).await?;
         Ok(())
     }
 }
