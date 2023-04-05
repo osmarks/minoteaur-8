@@ -3,6 +3,6 @@
 files
 *.sqlite3
 *.sqlite3-*
-static/*
+/static
 minoteaur.sqlite3
 *.tar
