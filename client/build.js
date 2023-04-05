@@ -6,6 +6,7 @@ const fs = require("fs")
 
 fs.copyFile(path.join(__dirname, "icon.png"), path.join(__dirname, "../static/icon.png"), () => {})
 
+const argv = process.argv.join(" ")
 esbuild
     .build({
         entryPoints: [path.join(__dirname, "app.js")],
@@ -23,6 +24,7 @@ esbuild
             ".ttf": "file"
         },
         logLevel: "info",
-        watch: process.argv.join(" ").includes("watch")
+        watch: argv.includes("watch"),
+        minify: argv.includes("minify")
     })
     .catch(() => process.exit(1))

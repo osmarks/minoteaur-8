@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 use rusty_ulid::Ulid;
-use std::collections::{HashMap, hash_map::Entry, HashSet, BTreeSet, BTreeMap, VecDeque};
+use std::collections::{HashMap, hash_map::Entry, HashSet, BTreeSet, BTreeMap};
 use std::sync::Arc;
 use chrono::prelude::*;
 use sqlx::sqlite::{SqlitePool, SqlitePoolOptions, SqliteConnectOptions};
@@ -13,7 +13,7 @@ use std::str::FromStr;
 use crate::error::{Error, Result};
 use crate::search::Index;
 use crate::util;
-use util::Slug;
+use util::{Slug, CONFIG};
 use crate::markdown;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -143,7 +143,7 @@ impl DB {
     pub async fn init() -> Result<Self> {
         let pool = SqlitePoolOptions::new()
             .max_connections(4)
-            .connect_with(SqliteConnectOptions::from_str("sqlite://minoteaur.sqlite3")?.create_if_missing(true)).await?;
+            .connect_with(SqliteConnectOptions::from_str(&format!("sqlite://{}", CONFIG.paths.primary_db))?.create_if_missing(true)).await?;
         sqlx::query("CREATE TABLE IF NOT EXISTS objects (id BLOB NOT NULL PRIMARY KEY, data BLOB NOT NULL, long_data BLOB)").persistent(false).execute(&mut pool.acquire().await?).await?;
         let mut db = Self {
             backing: pool,
@@ -184,7 +184,7 @@ impl DB {
                     self.mem.revisions.insert(id, rh);
                     self.mem.page_revisions.entry(page).or_default().push(id);
                 },
-                Object::PageView(v) => ()
+                Object::PageView(_v) => ()
             }
         }
         // this has to be done after all pages have been loaded into memory, or links won't work right

@@ -8,7 +8,7 @@ use std::time;
 
 use crate::storage::DB;
 use crate::util;
-use util::Slug;
+use util::{Slug, CONFIG};
 
 #[derive(Debug)]
 enum ExtEvent<'a> {
@@ -229,8 +229,6 @@ pub fn extract_info(input: &str, db: &DB) -> (Vec<(usize, String)>, Vec<Wikilink
     (paras, links)
 }
 
-const LENGTH_TARGET: usize = 256;
-const LINES_TARGET: usize = 5;
 pub fn snippet<'a>(input: &'a str, db: &DB) -> String {
     use ExtEvent::*;
     use self::Event::*;
@@ -254,7 +252,7 @@ pub fn snippet<'a>(input: &'a str, db: &DB) -> String {
             },
             _ if is_end_of_block_element(&x) => {
                 depth -= 1;
-                if total_text >= LENGTH_TARGET || lines >= LINES_TARGET {
+                if total_text >= CONFIG.snippet.length_target || lines >= CONFIG.snippet.lines_target {
                     finish = true;
                     if depth == 0 {
                         break;

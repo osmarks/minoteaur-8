@@ -21,11 +21,12 @@ mod error;
 mod util;
 use error::*;
 use storage::*;
+use util::CONFIG;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     if std::env::var_os("RUST_LOG").is_none() {
-        std::env::set_var("RUST_LOG", "minoteaur=debug")
+        std::env::set_var("RUST_LOG", format!("minoteaur={}", CONFIG.log_level))
     }
     tracing_subscriber::fmt::init();
 
@@ -47,8 +48,8 @@ async fn main() -> anyhow::Result<()> {
         .route("/", get(index))
         .layer(AddExtensionLayer::new(db));
 
-    let addr = "[::]:7600".parse().unwrap();
-    tracing::debug!("listening on {}", addr);
+    let addr = CONFIG.listen_address.parse().unwrap();
+    tracing::info!("listening on {}", addr);
     axum::Server::bind(&addr)
         .serve(app.into_make_service())
         .await?;
@@ -98,15 +99,13 @@ enum APIRes {
     IconSet
 }
 
-const BASE_PATH: &'static str = "./files";
-
 async fn file_upload(mut multipart: Multipart, Path(page_id): Path<Ulid>, Extension(db): Extension<DBHandle>) -> Result<Json<Vec<storage::File>>> {
     let mut files = vec![];
     while let Some(mut field) = multipart.next_field().await.context("multipart error")? {
         let name = field.name().ok_or(Error::BadInput(anyhow!("filename required")))?.to_string();
         let content_type = field.content_type().ok_or(Error::BadInput(anyhow!("content type required")))?.to_string();
         let relative_path = util::derive_path(page_id, &name);
-        let path = format!("{}/{}", BASE_PATH, relative_path);
+        let path = format!("{}/{}", CONFIG.paths.files, relative_path);
         fs::create_dir_all(path::Path::new(&path).parent().unwrap()).await.context("making dirs")?;
         
         let mut size = 0;
@@ -129,9 +128,9 @@ async fn file_upload(mut multipart: Multipart, Path(page_id): Path<Ulid>, Extens
     }
     let files = tokio::task::spawn_blocking(move || -> Result<Vec<storage::File>, anyhow::Error> {
         let cookie = Cookie::open(CookieFlags::default())?;
-        cookie.load(&["/usr/share/file/misc/magic.mgc"])?;
+        cookie.load(&[&CONFIG.paths.magic_db])?;
         for file in files.iter_mut() {
-            let filetype = cookie.file(&format!("{}/{}", BASE_PATH, file.storage_path))?;
+            let filetype = cookie.file(&format!("{}/{}", CONFIG.paths.files, file.storage_path))?;
             file.metadata.insert(String::from("filetype"), filetype);
         }
         Ok(files)
@@ -146,13 +145,11 @@ async fn file_get(Path((page_id, filename)): Path<(Ulid, String)>, Extension(db)
     let db = db_.read();
     let page = db.pages.get(&page_id).ok_or(Error::NotFound)?;
     let file = page.files.get(&filename).ok_or(Error::NotFound)?;
-    Ok(ServeFile::new_with_mime(format!("{}/{}", BASE_PATH, file.storage_path), &mime::Mime::from_str(&file.mime_type).context("invalid MIME")?).oneshot(req).await.context("serving static file")?)
+    Ok(ServeFile::new_with_mime(format!("{}/{}", CONFIG.paths.files, file.storage_path), &mime::Mime::from_str(&file.mime_type).context("invalid MIME")?).oneshot(req).await.context("serving static file")?)
 }
 
-const MAX_TITLE_SUGGESTIONS: usize = 20;
-
 async fn api(Json(input): Json<APIReq>, Extension(db): Extension<DBHandle>) -> Result<Json<APIRes>> {
-    println!("{:?}", input);
+    tracing::debug!("{:?}", input);
     match input {
         APIReq::GetPage(ulid, rev_id) => {
             db.write().await.push_view(ulid).await?;
@@ -204,7 +201,7 @@ async fn api(Json(input): Json<APIReq>, Extension(db): Extension<DBHandle>) -> R
                 .filter_map(|(i, p)| util::fuzzy_match(&plain, &p.title).map(|s| (i.clone(), p.title.as_str(), s)))
                 .collect();
             title_matches.sort_unstable_by_key(|(_, _, s)| -s);
-            title_matches.truncate(MAX_TITLE_SUGGESTIONS);
+            title_matches.truncate(CONFIG.title_search.max_results);
             Ok(Json(APIRes::SearchResult { 
                 content_matches: results,
                 title_matches: title_matches.into_iter().map(|(i, t, _s)| (i, t.to_string())).collect()
@@ -263,7 +260,7 @@ async fn api(Json(input): Json<APIReq>, Extension(db): Extension<DBHandle>) -> R
         APIReq::DeleteFile(ulid, filename) => {
             let mut db = db.write().await;
             let file = db.remove_file(ulid, filename).await?;
-            fs::remove_file(format!("{}/{}", BASE_PATH, file.storage_path)).await.context("deleting file")?;
+            fs::remove_file(format!("{}/{}", CONFIG.paths.files, file.storage_path)).await.context("deleting file")?;
             Ok(Json(APIRes::FileDeleted))
         },
         APIReq::SetIcon(page, icon) => {

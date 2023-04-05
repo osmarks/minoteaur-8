@@ -6,6 +6,91 @@ use fnv::FnvHasher;
 use rusty_ulid::Ulid;
 use std::hash::Hasher;
 use triple_accel::levenshtein::*;
+use anyhow::{Result, Context};
+
+#[derive(Deserialize)]
+#[serde(default)]
+pub struct TitleSearchConfig {
+    pub max_results: usize,
+    pub consecutive_char_bonus: i32,
+    pub word_start_bonus: i32,
+    pub distance_penalty: i32,
+}
+impl Default for TitleSearchConfig {
+    fn default() -> Self {
+        Self {
+            max_results: 20,
+            consecutive_char_bonus: 8,
+            word_start_bonus: 72,
+            distance_penalty: 4
+        }
+    }
+}
+
+#[derive(Deserialize)]
+#[serde(default)]
+pub struct PathsConfig {
+    pub magic_db: String,
+    pub primary_db: String,
+    pub files: String
+}
+impl Default for PathsConfig {
+    fn default() -> Self {
+        Self {
+            magic_db: "/usr/share/file/misc/magic.mgc".to_string(),
+            primary_db: "./minoteaur.sqlite3".to_string(),
+            files: "./files".to_string()
+        }
+    }
+}
+
+#[derive(Deserialize)]
+#[serde(default)]
+pub struct SnippetConfig {
+    pub lines_target: usize,
+    pub length_target: usize
+}
+impl Default for SnippetConfig {
+    fn default() -> Self {
+        Self {
+            lines_target: 5,
+            length_target: 256
+        }
+    }
+}
+
+#[derive(Deserialize)]
+#[serde(default)]
+pub struct Config {
+    pub title_search: TitleSearchConfig,
+    pub paths: PathsConfig,
+    pub snippet: SnippetConfig,
+    pub listen_address: String,
+    pub log_level: String
+}
+impl Default for Config {
+    fn default() -> Self {
+        Self {
+            title_search: Default::default(),
+            paths: Default::default(),
+            snippet: Default::default(),
+            listen_address: "[::]:7600".to_string(),
+            log_level: "info".to_string()
+        }
+    }
+}
+
+lazy_static::lazy_static! {
+    pub static ref CONFIG: Config = load_config().unwrap();
+}
+
+fn load_config() -> Result<Config> {
+    use config::{Config, File};
+    let s = Config::builder()
+        .add_source(File::with_name("./config"))
+        .build().context("loading config")?;
+    Ok(s.try_deserialize().context("parsing config")?)
+}
 
 pub fn to_slug(s: &str) -> String {
     s.unicode_words().map(str::to_lowercase).collect::<Vec<String>>().join("_")
@@ -85,12 +170,9 @@ pub fn derive_path(page: Ulid, filename: &str) -> String {
     hasher.write(page.to_string().as_bytes());
     hasher.write(filename.as_bytes());
     let folder = hasher.finish() & 0xFF;
-    format!("{:02X}/{}", folder, to_slug(filename))
+    format!("{:02X}/{}_{}", folder, page, to_slug(filename))
 }
 
-const BONUS_CONSECUTIVE: i32 = 8;
-const BONUS_WORD_START: i32 = 72;
-const PENALTY_DISTANCE: i32 = 4;
 pub fn fuzzy_match(query: &str, target: &str) -> Option<i32> {
     let lower = target.to_lowercase();
     let word_starts: HashSet<usize> = lower.unicode_word_indices().map(|(i, _)| i).collect();
@@ -103,15 +185,15 @@ pub fn fuzzy_match(query: &str, target: &str) -> Option<i32> {
             match target_gs.next() {
                 Some((index, g)) if g == query_g => {
                     if word_starts.contains(&index) {
-                        score += BONUS_WORD_START;
+                        score += CONFIG.title_search.word_start_bonus;
                     }
                     consecutive += 1;
-                    score += consecutive * BONUS_CONSECUTIVE;
+                    score += consecutive * CONFIG.title_search.consecutive_char_bonus;
                     break;
                 },
                 Some((_, _)) => {
                     consecutive = 0;
-                    score -= PENALTY_DISTANCE;
+                    score -= CONFIG.title_search.distance_penalty;
                 },
                 None => return None
             }

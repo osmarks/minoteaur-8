@@ -87,7 +87,7 @@
         request.open("POST", "/api/upload/" + id)
 
         request.upload.addEventListener("progress", e => {
-            pendingFiles[thisID].progress = e.loaded / e.total
+            //pendingFiles[thisID].progress = e.loaded / e.total
         });
 
         request.addEventListener("load", e => {
