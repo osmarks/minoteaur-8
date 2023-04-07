@@ -107,6 +107,15 @@
 
     main
         display: flex
+        &.vertical
+            display: block
+        .navigation, .meta
+            width: 100%
+        .main-ui
+            max-width: 100%
+            overflow: scroll
+            padding-top: 1em
+            padding-bottom: 1em
 
     .navigation, .meta
         flex-shrink: 0
@@ -153,10 +162,11 @@
         padding: 1px
     :global(pre)
         padding: 4px
+
 </style>
 
 <script>
-    import { onMount } from "svelte"
+    import { onMount, tick } from "svelte"
 
     import View from "./View.svelte"
     import Edit from "./Edit.svelte"
@@ -169,6 +179,8 @@
 
     import rpc from "./rpc.js"
     import MetadataSidebar from "./MetadataSidebar.svelte"
+
+    let vertical = window.innerHeight > window.innerWidth
 
     window.rpc = rpc
 
@@ -279,11 +291,12 @@
             setTitle("Index")
         }
         const unparsed = actuallyUnparse(parts)
+        previousURL = unparsed
         if (scrollHeights[unparsed] !== undefined) {
             let height = scrollHeights[unparsed]
-            setTimeout(() => window.scrollTo(0, height)) // should run after component is rendered
+            await tick()
+            window.scrollTo(0, height)
         }
-        previousURL = unparsed
     }
 
     const switchPageState = newState => {
@@ -323,6 +336,16 @@
         return xsprime
     }
 
+    let clearButton
+
+    const hideSearchResults = async () => {
+        if (searchResults) {
+            searchResults.content_matches = []
+            await tick()
+            clearButton.scrollIntoView()
+        }
+    }
+
     onMount(updateRoute)
 
     var searchInput
@@ -333,8 +356,8 @@
 
 <svelte:window on:hashchange={updateRoute} />
 
-<main>
-    <div class={"navigation " + (searchMode ? "search-mode" : "sidebar")}>
+<main class={vertical ? "vertical" : ""}>
+    <div class={"navigation " + (searchMode ? "search-mode" : vertical ? "" : "sidebar")}>
         <LinkButton href="#/" color="#5170d7">Index</LinkButton>
         <LinkButton href="#/search" color="#fac205">Search</LinkButton>
         <LinkButton href="#/create" color="#bc13fe">Create</LinkButton>
@@ -361,6 +384,10 @@
                 </div>
                 {/each}
             </div>
+        {/if}
+        {#if vertical}
+            <!-- svelte-ignore a11y-invalid-attribute -->
+            <a href="#" on:click|preventDefault={hideSearchResults} bind:this={clearButton}>Clear</a>
         {/if}
     </div>
     {#if child}

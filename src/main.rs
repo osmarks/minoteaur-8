@@ -57,7 +57,7 @@ async fn main() -> anyhow::Result<()> {
 }
 
 async fn index() -> impl IntoResponse {
-    Html(r#"<!DOCTYPE html><title>Loading - Minoteaur</title><meta charset="utf8"><link rel=icon href="/static/icon.png"><link rel=stylesheet href="/static/app.css"><body><script src="/static/app.js"></script></body>"#)
+    Html(r#"<!DOCTYPE html><title>Loading - Minoteaur</title><meta charset="utf8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><link rel=icon href="/static/icon.png"><link rel=stylesheet href="/static/app.css"><body><script src="/static/app.js"></script></body>"#)
 }
 
 #[derive(Debug, Serialize, Deserialize)]
