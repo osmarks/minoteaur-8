@@ -853,6 +853,7 @@ dependencies = [
  "fnv",
  "futures-util",
  "inlinable_string",
+ "itertools",
  "katex",
  "lazy_static",
  "magic",

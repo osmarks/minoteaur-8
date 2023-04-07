@@ -19,7 +19,7 @@ struct TokenInfo {
 pub struct Index {
     inverted_index: BTreeMap<Token, TokenInfo>,
     documents: HashMap<Ulid, Document>,
-    total_document_length: u64
+    pub total_document_length: u64
 }
 
 /*
@@ -117,7 +117,7 @@ impl Index {
         self.total_document_length += document_len;
     }
 
-    pub fn search(&self, query_tokens: Vec<InlinableString>) -> Vec<(Ulid, f64, usize)> {
+    pub fn search(&self, query_tokens: Vec<InlinableString>, max_results: usize) -> Vec<(Ulid, f64, usize)> {
         let mut tokens: HashMap<InlinableString, f64> = query_tokens.into_iter().map(|x| (x, 1.0)).collect();
         for token in tokens.clone().keys() {
             for other_token in self.inverted_index.keys() {
@@ -156,12 +156,15 @@ impl Index {
                 *documents.entry(*document).or_default() += weight * df;
             }
         }
-        let mut result: Vec<(Ulid, f64, usize)> = documents
+        let mut result: Vec<(Ulid, f64)> = documents
+            .into_iter()
+            .collect();
+        result.sort_unstable_by(|(_, sa), (_, sb)| sb.partial_cmp(sa).unwrap());
+        result.truncate(max_results);
+        result
             .into_iter()
             .map(|(document_id, score)| (document_id, score, best_highlight_location(&tokens, &self.documents[&document_id])))
-            .collect();
-        result.sort_unstable_by(|(_, sa, _), (_, sb, _)| sb.partial_cmp(sa).unwrap());
-        result
+            .collect()
     }
 
     pub fn new() -> Self {

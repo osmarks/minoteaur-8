@@ -35,3 +35,4 @@ tower = "0.4"
 mime = "0.3"
 quick-js = { version = "0.4.2-alpha.0", git = "https://github.com/osmarks/quickjs-rs.git" }
 config = { version = "0.13", default-features = false, features = ["toml"] }
+itertools = "0.10"

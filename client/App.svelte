@@ -232,8 +232,8 @@
             setTitle(`Creating ${parts[1] || "page"}`)
         } else {
             page = null
-            const { recent_changes, random_pages, dead_links } =  await rpc("IndexPage", null)
-            params = { recentChanges: recent_changes.map(([revision, page]) => ({ ...revision, pageData: page })), randomPages: random_pages, deadLinks: dead_links }
+            const { recent_changes, random_pages, dead_links, stats } =  await rpc("IndexPage", null)
+            params = { recentChanges: recent_changes.map(([revision, page]) => ({ ...revision, pageData: page })), randomPages: random_pages, deadLinks: dead_links, stats }
             child = Index
             setTitle("Index")
         }

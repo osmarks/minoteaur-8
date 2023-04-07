@@ -7,6 +7,7 @@ use rusty_ulid::Ulid;
 use std::hash::Hasher;
 use triple_accel::levenshtein::*;
 use anyhow::{Result, Context};
+use itertools::Itertools;
 
 #[derive(Deserialize)]
 #[serde(default)]
@@ -66,7 +67,10 @@ pub struct Config {
     pub paths: PathsConfig,
     pub snippet: SnippetConfig,
     pub listen_address: String,
-    pub log_level: String
+    pub log_level: String,
+    pub allow_backdate: bool,
+    pub max_edit_distance: u32,
+    pub max_search_results: usize
 }
 impl Default for Config {
     fn default() -> Self {
@@ -75,7 +79,10 @@ impl Default for Config {
             paths: Default::default(),
             snippet: Default::default(),
             listen_address: "[::]:7600".to_string(),
-            log_level: "info".to_string()
+            log_level: "info".to_string(),
+            allow_backdate: false,
+            max_edit_distance: 512,
+            max_search_results: 64
         }
     }
 }
@@ -132,7 +139,7 @@ pub fn parse_query(s: &str) -> Query {
     let mut tags = HashSet::new();
     for w in s.split_ascii_whitespace() {
         if w.starts_with('#') {
-            tags.insert(to_slug(&w[1..]));
+            tags.insert(preprocess_tag(&w[1..]));
         } else {
             standard_toks.extend(w.unicode_words().map(InlinableString::from));
         }
@@ -161,8 +168,8 @@ impl ContentSize {
     }
 }
 
-pub fn edit_distance(a: &str, b: &str) -> u32 {
-    rdamerau(a.as_bytes(), b.as_bytes())
+pub fn edit_distance(a: &str, b: &str) -> Option<u32> {
+    levenshtein_simd_k_str(a, b, CONFIG.max_edit_distance)
 }
 
 pub fn derive_path(page: Ulid, filename: &str) -> String {
@@ -200,4 +207,8 @@ pub fn fuzzy_match(query: &str, target: &str) -> Option<i32> {
         }
     }
     Some(score)
+}
+
+pub fn preprocess_tag(tag: &str) -> String {
+    tag.split('/').map(to_slug).intersperse("/".to_string()).collect()
 }

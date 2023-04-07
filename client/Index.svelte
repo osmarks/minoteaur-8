@@ -8,9 +8,12 @@
 	export let recentChanges
     export let randomPages
     export let deadLinks
+    export let stats
 </script>
 
 <h1>Index</h1>
+
+<p>{stats.total_words} words and {stats.total_links} links in {stats.total_pages} pages with {stats.total_revisions} revisions.</p>
 
 <h2>Recent Changes</h2>
 <RevisionHistory revs={recentChanges} />
@@ -18,7 +21,7 @@
 <h2>Dead Links</h2>
 {#each deadLinks as link}
 <ul>
-    <li><a href={`#/page/${link[0]}`} class="wikilink">{link[1]}</a> → <a href={`#/create/${link[2]}`} class="wikilink nonexistent">{link[2]}</a></li>
+    <li><a href={`#/page/${link[0]}`} class="wikilink">{link[1]}</a> → <a href={`#/create/${link[2]}`} class="wikilink nonexistent">{link[3]}</a></li>
 </ul>
 {/each}
 

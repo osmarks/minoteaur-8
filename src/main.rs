@@ -80,7 +80,16 @@ enum APIReq {
     RemoveTag(Ulid, String),
     IndexPage,
     DeleteFile(Ulid, String),
-    SetIcon(Ulid, Option<String>)
+    SetIcon(Ulid, Option<String>),
+    UpdatePageRetroactive(Ulid, String, i64)
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct Stats {
+    total_pages: usize,
+    total_revisions: usize,
+    total_links: usize,
+    total_words: u64
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -94,7 +103,7 @@ enum APIRes {
     Revisions(Vec<RevisionHeader>),
     RemovedName(String),
     RemovedTag(String),
-    IndexPage { recent_changes: Vec<(RevisionHeader, PageMeta)>, random_pages: Vec<PageMeta>, dead_links: Vec<(Ulid, String, String)> },
+    IndexPage { recent_changes: Vec<(RevisionHeader, PageMeta)>, random_pages: Vec<PageMeta>, dead_links: Vec<(Ulid, String, util::Slug, String)>, stats: Stats },
     FileDeleted,
     IconSet
 }
@@ -130,8 +139,10 @@ async fn file_upload(mut multipart: Multipart, Path(page_id): Path<Ulid>, Extens
         let cookie = Cookie::open(CookieFlags::default())?;
         cookie.load(&[&CONFIG.paths.magic_db])?;
         for file in files.iter_mut() {
-            let filetype = cookie.file(&format!("{}/{}", CONFIG.paths.files, file.storage_path))?;
-            file.metadata.insert(String::from("filetype"), filetype);
+            match cookie.file(&format!("{}/{}", CONFIG.paths.files, file.storage_path)) {
+                Ok(filetype) => file.metadata.insert(String::from("filetype"), filetype),
+                Err(e) => file.metadata.insert(String::from("filetype"), format!("Autodetection failed: {}", e))
+            };
         }
         Ok(files)
     }).await.context("task spawning")?.context("autodetecting filetype")?;
@@ -186,7 +197,7 @@ async fn api(Json(input): Json<APIReq>, Extension(db): Extension<DBHandle>) -> R
             let plain = util::query_plain_parts(&query);
             let tags = query.1;
             let results = if query.0.len() > 0 {
-                data.search_index.search(query.0).into_iter()
+                data.search_index.search(query.0, CONFIG.max_search_results).into_iter()
                     .map(|(page, score, snippet_offset)| (page, PageMeta::from_page(&data.pages[&page], &db, snippet_offset), score))
                     .filter(|(_id, meta, _score)| tags.iter().all(|t| meta.tags.contains(t)))
                     .collect()
@@ -212,6 +223,15 @@ async fn api(Json(input): Json<APIReq>, Extension(db): Extension<DBHandle>) -> R
             db.update_page(id, content).await?;
             Ok(Json(APIRes::PageUpdated))
         },
+        APIReq::UpdatePageRetroactive(id, content, backdate_dt_ms) => {
+            if !CONFIG.allow_backdate {
+                return Err(Error::BadInput(anyhow!("backdating is disabled")));
+            }
+            let dt = Utc.timestamp_millis(backdate_dt_ms);
+            let mut db = db.write().await;
+            db.update_page_at(id, content, dt).await?;
+            Ok(Json(APIRes::PageUpdated))
+        },
         APIReq::CreatePage { title, tags } => {
             let mut db = db.write().await;
             Ok(Json(APIRes::NewPage(db.create_page(title, tags).await?)))
@@ -224,7 +244,7 @@ async fn api(Json(input): Json<APIReq>, Extension(db): Extension<DBHandle>) -> R
         APIReq::AddTag(id, tag) => {
             let mut db = db.write().await;
             db.add_tag(id, tag.clone()).await?;
-            Ok(Json(APIRes::AddedTag(util::to_slug(&tag))))
+            Ok(Json(APIRes::AddedTag(util::preprocess_tag(&tag))))
         },
         APIReq::RemoveName(id, name) => {
             let mut db = db.write().await;
@@ -234,7 +254,7 @@ async fn api(Json(input): Json<APIReq>, Extension(db): Extension<DBHandle>) -> R
         APIReq::RemoveTag(id, tag) => {
             let mut db = db.write().await;
             db.remove_tag(id, tag.clone()).await?;
-            Ok(Json(APIRes::RemovedTag(util::to_slug(&tag))))
+            Ok(Json(APIRes::RemovedTag(util::preprocess_tag(&tag))))
         },
         APIReq::GetRevisions(id) => {
             let db = db.read().await;
@@ -251,11 +271,18 @@ async fn api(Json(input): Json<APIReq>, Extension(db): Extension<DBHandle>) -> R
                 .flat_map(|(i, p)| if ixs.contains(&i) { Some(PageMeta::from_page(p, &db, 0)) } else { None }).collect();
             random_samples.shuffle(&mut rng);
 
-            let dead_links = data.unresolved_links.values().flat_map(|originators| {
-                originators.iter().map(|(oid, (display_name, _context_offset))| (oid.clone(), data.pages[&oid].title.clone(), display_name.clone()))
+            let dead_links = data.unresolved_links.iter().flat_map(|(target_name, originators)| {
+                originators.iter().map(|(oid, (display_name, _context_offset))| (oid.clone(), data.pages[&oid].title.clone(), target_name.clone(), display_name.clone()))
             }).collect();
 
-            Ok(Json(APIRes::IndexPage { recent_changes: db.recent_changes(16), random_pages: random_samples, dead_links }))
+            let stats = Stats {
+                total_pages: data.pages.len(),
+                total_links: data.links.values().map(|(out, _in)| out.len()).sum(),
+                total_revisions: data.revisions.len(),
+                total_words: data.search_index.total_document_length
+            };
+
+            Ok(Json(APIRes::IndexPage { recent_changes: db.recent_changes(16), random_pages: random_samples, dead_links, stats }))
         },
         APIReq::DeleteFile(ulid, filename) => {
             let mut db = db.write().await;

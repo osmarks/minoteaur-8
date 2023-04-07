@@ -27,7 +27,12 @@
             {#if rev.ty == "PageCreated"}
                 Page created.
             {:else if "ContentUpdate" in rev.ty}
-                {rev.ty.ContentUpdate.edit_distance} bytes changed, page is now {rev.ty.ContentUpdate.new_content_size.bytes} bytes/{rev.ty.ContentUpdate.new_content_size.words} words.
+                {#if rev.ty.ContentUpdate.edit_distance !== null}
+                    {rev.ty.ContentUpdate.edit_distance} chars changed, page 
+                {:else}
+                    Page 
+                {/if}
+                is now {rev.ty.ContentUpdate.new_content_size.bytes} bytes/{rev.ty.ContentUpdate.new_content_size.words} words.
                 <a class="wikilink" href={`#/page/${id || rev.page}/revision/${rev.id}`}>View</a> old version.
             {:else if "AddTag" in rev.ty}
                 Added <a class="wikilink tag" href={`#/search/${encodeURIComponent("#" + rev.ty.AddTag)}`}>#{rev.ty.AddTag}</a>.

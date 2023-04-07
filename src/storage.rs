@@ -87,7 +87,7 @@ impl PageMeta {
 pub enum RevisionType {
     AddName(String),
     AddTag(String),
-    ContentUpdate { new_content_size: util::ContentSize, edit_distance: u32 },
+    ContentUpdate { new_content_size: util::ContentSize, edit_distance: Option<u32> },
     PageCreated,
     RemoveName(String),
     RemoveTag(String),
@@ -284,7 +284,7 @@ impl DB {
             created: Utc::now(),
             title: title.clone(),
             names: vec![title].into_iter().collect(),
-            tags: initial_tags.into_iter().collect(),
+            tags: initial_tags.into_iter().map(|a| util::preprocess_tag(&a)).collect(),
             size: util::ContentSize::compute(""),
             id,
             files: HashMap::new(),
@@ -296,26 +296,30 @@ impl DB {
         Ok(id)
     }
 
-    pub async fn update_page(&mut self, id: Ulid, content: String) -> Result<()> {
+    pub async fn update_page_at(&mut self, id: Ulid, content: String, time: DateTime<Utc>) -> Result<()> {
         let edit_distance = {
             let old_content = &self.mem.pages.get(&id).ok_or(Error::NotFound)?.content;
             util::edit_distance(&content, &old_content)
         };
         let new_content_size = util::ContentSize::compute(&content);
-        self.push_revision(id, RevisionType::ContentUpdate { 
+        self.push_revision_at(id, RevisionType::ContentUpdate { 
             new_content_size,
             edit_distance
-        }, Some(content.as_bytes().to_vec())).await?;
+        }, Some(content.as_bytes().to_vec()), time).await?;
         let page = {
             let mut page = self.mem.pages.get_mut(&id).ok_or(Error::NotFound)?;
             page.content = content;
             page.size = new_content_size;
-            page.updated = Utc::now();
+            page.updated = time;
             page.clone()
         };
         self.write_object(id, Object::Page(page), None).await?;
         self.parse_and_index_page(id)?;
         Ok(())
+    }
+
+    pub async fn update_page(&mut self, id: Ulid, content: String) -> Result<()> {
+        self.update_page_at(id, content, Utc::now()).await
     }
 
     pub async fn add_name(&mut self, id: Ulid, name: String) -> Result<()> {
@@ -332,7 +336,7 @@ impl DB {
     }
 
     pub async fn add_tag(&mut self, id: Ulid, tag: String) -> Result<()> {
-        let tag = util::to_slug(&tag);
+        let tag = util::preprocess_tag(&tag);
         self.push_revision(id, RevisionType::AddTag(tag.clone()), None).await?;
         if !self.mem.pages.contains_key(&id) { return Err(Error::NotFound) }
         self.mem.tags.entry(tag.clone()).or_default().insert(id);
@@ -345,9 +349,8 @@ impl DB {
         Ok(())
     }
 
-    pub async fn push_revision(&mut self, page: Ulid, rev: RevisionType, content: Option<Vec<u8>>) -> Result<()> {
+    pub async fn push_revision_at(&mut self, page: Ulid, rev: RevisionType, content: Option<Vec<u8>>, time: DateTime<Utc>) -> Result<()> {
         let id = Ulid::generate();
-        let time = Utc::now();
         let header = RevisionHeader {
             id, time, ty: rev, page
         };
@@ -355,6 +358,10 @@ impl DB {
         self.mem.revisions.insert(id, header);
         self.mem.page_revisions.entry(page).or_default().push(id);
         Ok(())
+    }
+
+    pub async fn push_revision(&mut self, page: Ulid, rev: RevisionType, content: Option<Vec<u8>>) -> Result<()> {
+        self.push_revision_at(page, rev, content, Utc::now()).await
     }
 
     pub fn revisions(&self, page: Ulid) -> Result<Vec<RevisionHeader>> {
@@ -372,7 +379,7 @@ impl DB {
     }
 
     pub async fn remove_tag(&mut self, id: Ulid, tag: String) -> Result<()> {
-        let tag = util::to_slug(&tag);
+        let tag = util::preprocess_tag(&tag);
         self.push_revision(id, RevisionType::RemoveTag(tag.clone()), None).await?;
         if !self.mem.pages.contains_key(&id) { return Err(Error::NotFound) }
         self.mem.tags.entry(tag.clone()).or_default().remove(&id);

@@ -1,8 +1,6 @@
 use pulldown_cmark::{html, Options, Parser, Event, Tag, escape::{self, StrWrite}, CodeBlockKind, CowStr};
 use smallvec::SmallVec;
-use lazy_static::lazy_static;
 use rusty_ulid::Ulid;
-use regex::{Regex, Captures};
 use quick_js::Context;
 use std::time;
 
@@ -13,7 +11,7 @@ use util::{Slug, CONFIG};
 #[derive(Debug)]
 enum ExtEvent<'a> {
     Event(Event<'a>),
-    Wikilink(String, String),
+    Wikilink(String, String, Option<String>),
     Maths(bool, String),
     CaptionImageStart(CowStr<'a>, CowStr<'a>),
     CaptionImageEnd,
@@ -33,42 +31,6 @@ pub enum Wikilink {
     TargetMissing(Slug, String, usize) // target, text, context position
 }
 
-fn run_filter<'a, T: Clone, F: Fn(Captures, T) -> ExtEvent<'a>>(input: SmallVec<[ExtEvent<'a>; 3]>, re: &Regex, handler: F, context: T) -> SmallVec<[ExtEvent<'a>; 3]> {
-    let mut out = SmallVec::new();
-    for event in input {
-        match event {
-            ExtEvent::Event(Event::Text(text)) => {
-                if text.len() != 0 {
-                    let mut pos = 0;
-                    for cap in re.captures_iter(&text) {
-                        let mat = cap.get(0).unwrap();
-                        out.push(ExtEvent::Event(Event::Text(text[pos..mat.start()].to_owned().into())));
-                        out.push(handler(cap, context.clone()));
-                        pos = mat.end();
-                    }
-                    out.push(ExtEvent::Event(Event::Text(text[pos..].to_owned().into())));
-                }
-            },
-            e => out.push(e)
-        }
-    }
-    out
-}
-
-fn wikilink_replacer<'a>(cap: Captures, (): ()) -> ExtEvent<'a> {
-    let target = cap.get(1).unwrap().as_str();
-    let display_name = cap.get(3).map(|x| x.as_str()).unwrap_or(target);
-    ExtEvent::Wikilink(target.to_string(), display_name.to_string())
-}
-
-fn inline_maths_replacer<'a>(cap: Captures, (): ()) -> ExtEvent<'a> {
-    ExtEvent::Maths(false, cap.get(1).unwrap().as_str().to_string())
-}
-
-fn redaction_replacer<'a>(cap: Captures, (): ()) -> ExtEvent<'a> {
-    ExtEvent::Redaction(cap.get(1).unwrap().as_str().to_string())
-}
-
 fn strip_paragraphs<'a, I: Iterator<Item=ExtEvent<'a>>>(i: I) -> impl Iterator<Item=ExtEvent<'a>> {
     i.filter(|x| match x {
         ExtEvent::Event(Event::Start(Tag::Paragraph)) => false,
@@ -77,23 +39,39 @@ fn strip_paragraphs<'a, I: Iterator<Item=ExtEvent<'a>>>(i: I) -> impl Iterator<I
     })
 }
 
-fn parse<'a>(input: &'a str) -> impl Iterator<Item=ExtEvent<'a>> {
-    lazy_static! {
-        static ref WL_REGEX: Regex = Regex::new(r"\[\[([^｜|\]]+)([\|｜]([^\]]+))?]\]").unwrap();
-        static ref MATHS_REGEX: Regex = Regex::new(r"\$\$([^$]+)\$\$").unwrap();
-        static ref REDACTION_REGEX: Regex = Regex::new(r"\|\|(.+)\|\|").unwrap();
+enum SpecialSyntaxMarker {
+    Wikilink,
+    InlineMaths,
+    Redaction
+}
+
+fn special_marker_char(c: char) -> Option<SpecialSyntaxMarker> {
+    use SpecialSyntaxMarker::*;
+    match c {
+        ':' => Some(Wikilink),
+        '$' => Some(InlineMaths),
+        '|' => Some(Redaction),
+        _ => None
     }
+}
+
+fn parse<'a>(input: &'a str) -> impl Iterator<Item=ExtEvent<'a>> {
     let mut options = Options::empty();
     options.insert(Options::ENABLE_STRIKETHROUGH);
     options.insert(Options::ENABLE_TABLES);
     options.insert(Options::ENABLE_TASKLISTS);
     options.insert(Options::ENABLE_HEADING_ATTRIBUTES);
     options.insert(Options::ENABLE_FOOTNOTES);
-    let mut text_buf = String::new();
+    let mut last_text: Option<CowStr<'a>> = None;
     let mut code_block = None;
     let mut image_content = None;
     Parser::new_ext(input, options).into_offset_iter().flat_map(move |(event, range)| {
         let mut resulting_events: SmallVec<[ExtEvent<'a>; 3]> = SmallVec::new();
+        match (&event, &last_text) {
+            (Event::Code(_), _) => (),
+            (_, Some(_last)) => resulting_events.push(ExtEvent::Event(Event::Text(std::mem::replace(&mut last_text, None).unwrap()))),
+            _ => ()
+        }
         if is_event_start_of_block_element(&event) {
             resulting_events.push(ExtEvent::Position(range.start));
         }
@@ -136,24 +114,46 @@ fn parse<'a>(input: &'a str) -> impl Iterator<Item=ExtEvent<'a>> {
                     unreachable!()
                 }
             },
+            Event::Code(code) => {
+                match std::mem::replace(&mut last_text, None) {
+                    Some(text) => {
+                        if let Some((index, last_char)) = text.char_indices().last() {
+                            let previous_text = CowStr::from(text[..index].to_string()); // could probably avoid copying
+                            resulting_events.push(ExtEvent::Event(Event::Text(previous_text)));
+                            if let Some(special_syntax_type) = special_marker_char(last_char) {
+                                match special_syntax_type {
+                                    SpecialSyntaxMarker::InlineMaths => resulting_events.push(ExtEvent::Maths(false, code.to_string())),
+                                    SpecialSyntaxMarker::Redaction => resulting_events.push(ExtEvent::Redaction(code.to_string())),
+                                    SpecialSyntaxMarker::Wikilink => {
+                                        let link = match code.split_once(&[':', '|']) {
+                                            Some((target, display_name)) => {
+                                                match target.split_once('?') {
+                                                    Some((target, tag_spec)) => ExtEvent::Wikilink(target.to_string(), display_name.to_string(), Some(tag_spec.to_string())),
+                                                    None => ExtEvent::Wikilink(target.to_string(), display_name.to_string(), None)
+                                                }
+                                            },
+                                            None => ExtEvent::Wikilink(code.to_string(), code.to_string(), None)
+                                        };
+                                        resulting_events.push(link);
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    None => {
+                        resulting_events.push(ExtEvent::Event(Event::Code(code)));
+                    }
+                }
+            },
             Event::Text(text) => {
                 if let Some((ref mut code, _)) = code_block {
                     code.push_str(&*text)
                 } else {
-                    text_buf.push_str(&*text);
+                    last_text = Some(text);
                 }
             },
             event => {
-                let mut out = SmallVec::new();
-                if text_buf.len() != 0 {
-                    out.push(ExtEvent::Event(Event::Text(text_buf.clone().into())));
-                    out = run_filter(out, &WL_REGEX, wikilink_replacer, ());
-                    out = run_filter(out, &MATHS_REGEX, inline_maths_replacer, ());
-                    out = run_filter(out, &REDACTION_REGEX, redaction_replacer, ());
-                    text_buf.clear();
-                }
-                out.push(ExtEvent::Event(event));
-                resulting_events.extend(out);
+                resulting_events.push(ExtEvent::Event(event));
             }
         }
         resulting_events
@@ -204,7 +204,7 @@ pub fn extract_info(input: &str, db: &DB) -> (Vec<(usize, String)>, Vec<Wikilink
                 paras.push((pos, String::new()));
                 position = pos;
             }
-            ExtEvent::Wikilink(target, display_name) => {
+            ExtEvent::Wikilink(target, display_name, _tag_spec) => {
                 if display_name.starts_with('#') {
                     continue; // is tag link
                 }
@@ -224,8 +224,10 @@ pub fn extract_info(input: &str, db: &DB) -> (Vec<(usize, String)>, Vec<Wikilink
             _ => ()
         }
     };
-    let new_len = paras.last().unwrap().1.trim_end().len();
-    paras.last_mut().unwrap().1.truncate(new_len);
+    if let Some(last_para) = paras.last_mut() {
+        let new_len = last_para.1.trim_end().len();
+        last_para.1.truncate(new_len);
+    }
     (paras, links)
 }
 
@@ -268,6 +270,8 @@ pub fn snippet<'a>(input: &'a str, db: &DB) -> String {
                     }
                 }
             },
+            Maths(_, _) if finish => (),
+            Wikilink(_, _, _) if finish => (),
             Event(Text(ref str)) => {
                 if !finish {
                     total_text += str.len();
@@ -309,11 +313,13 @@ fn run_script_blocks<'a, I: Iterator<Item=ExtEvent<'a>>>(events: I, db: &'a DB) 
 }
 
 fn preprocess_events<'a, I: Iterator<Item=ExtEvent<'a>>>(events: I, db: &'a DB) -> impl Iterator<Item=Event<'a>> {
+    let katex_opts_block = katex::Opts::builder().display_mode(true).throw_on_error(false).trust(true).build().unwrap();
+    let katex_opts = katex::Opts::builder().display_mode(false).throw_on_error(false).trust(true).build().unwrap();
     events
-        .map(|e| {
+        .map(move |e| {
             match e {
                 ExtEvent::Event(ev) => ev,
-                ExtEvent::Wikilink(target, display_name) => {
+                ExtEvent::Wikilink(target, display_name, tag_spec) => {
                     if let Some(tag) = target.strip_prefix("#") {
                         let mut buf = String::new();
                         write!(buf, "<a class=\"wikilink tag\" href=\"#/search/%23{}\">#", util::to_slug(tag)).unwrap();
@@ -333,6 +339,10 @@ fn preprocess_events<'a, I: Iterator<Item=ExtEvent<'a>>>(events: I, db: &'a DB) 
                             let mut buf = String::new();
                             write!(buf, "<a class=\"wikilink nonexistent\" href=\"#/create/").unwrap();
                             escape::escape_href(&mut buf, &target).unwrap();
+                            if let Some(tag_spec) = tag_spec {
+                                write!(buf, "?tags=").unwrap();
+                                escape::escape_href(&mut buf, &tag_spec).unwrap();
+                            }
                             write!(buf, "\">").unwrap();
                             escape::escape_html(&mut buf, &display_name).unwrap();
                             write!(buf, "</a>").unwrap();
@@ -341,8 +351,8 @@ fn preprocess_events<'a, I: Iterator<Item=ExtEvent<'a>>>(events: I, db: &'a DB) 
                     }
                 },
                 ExtEvent::Maths(block_mode, tex) => {
-                    let katex_opts = katex::Opts::builder().display_mode(block_mode).throw_on_error(false).trust(true).build().unwrap();
-                    Event::Html(katex::render_with_opts(&tex, &katex_opts).unwrap().into())
+                    let opts = if block_mode { &katex_opts_block } else { &katex_opts };
+                    Event::Html(katex::render_with_opts(&tex, opts).unwrap().into())
                 },
                 ExtEvent::CaptionImageStart(url, title) => {
                     let mut buf = String::new();
