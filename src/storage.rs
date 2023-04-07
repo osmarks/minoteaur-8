@@ -285,6 +285,12 @@ impl DB {
         let id = Ulid::generate();
         self.add_name_internal(id, &title)?;
         self.push_revision(id, RevisionType::PageCreated, None).await?;
+        for tag in initial_tags.iter() {
+            for hier in util::hierarchical_tags(&tag) {
+                self.mem.tags_inv.entry(hier.clone()).or_default().insert(id);
+                self.mem.tags.entry(id).or_default().insert(hier);
+            }
+        }
         let page = Page {
             content: String::new(),
             updated: Utc::now(),
