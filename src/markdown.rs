@@ -118,9 +118,9 @@ fn parse<'a>(input: &'a str) -> impl Iterator<Item=ExtEvent<'a>> {
                 match std::mem::replace(&mut last_text, None) {
                     Some(text) => {
                         if let Some((index, last_char)) = text.char_indices().last() {
-                            let previous_text = CowStr::from(text[..index].to_string()); // could probably avoid copying
-                            resulting_events.push(ExtEvent::Event(Event::Text(previous_text)));
                             if let Some(special_syntax_type) = special_marker_char(last_char) {
+                                let previous_text = CowStr::from(text[..index].to_string()); // could probably avoid copying
+                                resulting_events.push(ExtEvent::Event(Event::Text(previous_text)));
                                 match special_syntax_type {
                                     SpecialSyntaxMarker::InlineMaths => resulting_events.push(ExtEvent::Maths(false, code.to_string())),
                                     SpecialSyntaxMarker::Redaction => resulting_events.push(ExtEvent::Redaction(code.to_string())),
@@ -137,7 +137,12 @@ fn parse<'a>(input: &'a str) -> impl Iterator<Item=ExtEvent<'a>> {
                                         resulting_events.push(link);
                                     }
                                 }
+                            } else {
+                                resulting_events.push(ExtEvent::Event(Event::Text(text.into())));
+                                resulting_events.push(ExtEvent::Event(Event::Code(code)));
                             }
+                        } else {
+                            resulting_events.push(ExtEvent::Event(Event::Code(code)));
                         }
                     },
                     None => {
@@ -270,6 +275,7 @@ pub fn snippet<'a>(input: &'a str, db: &DB) -> String {
                     }
                 }
             },
+            Event(Code(_)) if finish => (),
             Maths(_, _) if finish => (),
             Wikilink(_, _, _) if finish => (),
             Event(Text(ref str)) => {
@@ -312,9 +318,17 @@ fn run_script_blocks<'a, I: Iterator<Item=ExtEvent<'a>>>(events: I, db: &'a DB) 
     })
 }
 
+fn maths_config(block: bool) -> katex::Opts {
+    let mut opts = katex::Opts::builder().display_mode(block).throw_on_error(false).trust(true).build().unwrap();
+    for (kmacro, kdefn) in CONFIG.katex_macros.iter() {
+        opts.add_macro(kmacro.to_string(), kdefn.to_string());
+    }
+    opts
+}
+
 fn preprocess_events<'a, I: Iterator<Item=ExtEvent<'a>>>(events: I, db: &'a DB) -> impl Iterator<Item=Event<'a>> {
-    let katex_opts_block = katex::Opts::builder().display_mode(true).throw_on_error(false).trust(true).build().unwrap();
-    let katex_opts = katex::Opts::builder().display_mode(false).throw_on_error(false).trust(true).build().unwrap();
+    let katex_opts_block = maths_config(true);
+    let katex_opts = maths_config(false);
     events
         .map(move |e| {
             match e {

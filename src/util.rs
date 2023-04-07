@@ -1,7 +1,7 @@
 use unicode_segmentation::UnicodeSegmentation;
 use inlinable_string::InlinableString;
 use serde::{Deserialize, Serialize, Deserializer, de::{self, Visitor}};
-use std::collections::HashSet;
+use std::collections::{HashSet, HashMap};
 use fnv::FnvHasher;
 use rusty_ulid::Ulid;
 use std::hash::Hasher;
@@ -70,7 +70,8 @@ pub struct Config {
     pub log_level: String,
     pub allow_backdate: bool,
     pub max_edit_distance: u32,
-    pub max_search_results: usize
+    pub max_search_results: usize,
+    pub katex_macros: HashMap<String, String>
 }
 impl Default for Config {
     fn default() -> Self {
@@ -82,7 +83,8 @@ impl Default for Config {
             log_level: "info".to_string(),
             allow_backdate: false,
             max_edit_distance: 512,
-            max_search_results: 64
+            max_search_results: 64,
+            katex_macros: HashMap::new()
         }
     }
 }
