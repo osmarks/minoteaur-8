@@ -199,16 +199,16 @@ async fn api(Json(input): Json<APIReq>, Extension(db): Extension<DBHandle>) -> R
             let results = if query.0.len() > 0 {
                 data.search_index.search(query.0, CONFIG.max_search_results).into_iter()
                     .map(|(page, score, snippet_offset)| (page, PageMeta::from_page(&data.pages[&page], &db, snippet_offset), score))
-                    .filter(|(_id, meta, _score)| tags.iter().all(|t| meta.tags.contains(t)))
+                    .filter(|(id, _meta, _score)| tags.iter().all(|t| db.has_tag(*id, t)))
                     .collect()
             } else {
                 data.pages.keys().copied()
                     .map(|page| (page, PageMeta::from_page(&data.pages[&page], &db, 0), 1.0))
-                    .filter(|(_id, meta, _score)| tags.iter().all(|t| meta.tags.contains(t)))
+                    .filter(|(id, _meta, _score)| tags.iter().all(|t| db.has_tag(*id, t)))
                     .collect()
             };
             let mut title_matches: Vec<(Ulid, &str, i32)> = data.pages.iter()
-                .filter(|(_id, page)| tags.iter().all(|t| page.tags.contains(t)))
+                .filter(|(id, _page)| tags.iter().all(|t| db.has_tag(**id, t)))
                 .filter_map(|(i, p)| util::fuzzy_match(&plain, &p.title).map(|s| (i.clone(), p.title.as_str(), s)))
                 .collect();
             title_matches.sort_unstable_by_key(|(_, _, s)| -s);

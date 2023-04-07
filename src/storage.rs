@@ -114,7 +114,8 @@ pub struct MemoryStore {
     pub search_index: Index,
     pub links: Links,
     pub unresolved_links: HashMap<Slug, HashMap<Ulid, (String, usize)>>,
-    pub tags: HashMap<String, HashSet<Ulid>>,
+    pub tags_inv: HashMap<String, HashSet<Ulid>>,
+    pub tags: HashMap<Ulid, HashSet<String>>,
     pub page_revisions: HashMap<Ulid, Vec<Ulid>>,
     pub revisions: BTreeMap<Ulid, RevisionHeader>
 }
@@ -151,6 +152,7 @@ impl DB {
                 search_index: Index::new(),
                 links: HashMap::new(),
                 unresolved_links: HashMap::new(),
+                tags_inv: HashMap::new(),
                 tags: HashMap::new(),
                 page_revisions: HashMap::new(),
                 revisions: BTreeMap::new()
@@ -173,7 +175,10 @@ impl DB {
                         self.mem.page_lookup.insert(Slug::new(name), id);
                     }
                     for tag in page.tags.iter() {
-                        self.mem.tags.entry(tag.clone()).or_default().insert(id);
+                        for hier in util::hierarchical_tags(tag) {
+                            self.mem.tags.entry(id).or_default().insert(hier.clone());
+                            self.mem.tags_inv.entry(hier).or_default().insert(id);
+                        }
                     }
                     self.mem.pages.insert(id, page);
                 },
@@ -252,6 +257,10 @@ impl DB {
             for clear_from in to_clear {
                 self.mem.links.get_mut(&clear_from).unwrap().1.remove(&id);
             }
+        }
+        // remove unresolved link; will be added back later if it's still there
+        for links in self.mem.unresolved_links.values_mut() {
+            links.remove(&id);
         }
         let mut outbound = HashMap::new();
         // this throws away all but the last link to a page in a page, but this is probably maybe fine
@@ -337,7 +346,10 @@ impl DB {
         let tag = util::preprocess_tag(&tag);
         self.push_revision(id, RevisionType::AddTag(tag.clone()), None).await?;
         if !self.mem.pages.contains_key(&id) { return Err(Error::NotFound) }
-        self.mem.tags.entry(tag.clone()).or_default().insert(id);
+        for hier in util::hierarchical_tags(&tag) {
+            self.mem.tags_inv.entry(hier.clone()).or_default().insert(id);
+            self.mem.tags.entry(id).or_default().insert(hier);
+        }
         let page = {
             let page = self.mem.pages.get_mut(&id).unwrap();
             page.tags.insert(tag);
@@ -345,6 +357,10 @@ impl DB {
         };
         self.write_object(id, Object::Page(page), None).await?;
         Ok(())
+    }
+
+    pub fn has_tag(&self, id: Ulid, tag: &str) -> bool {
+        self.read().tags.get(&id).map(|x| x.contains(tag)).unwrap_or(false)
     }
 
     pub async fn push_revision_at(&mut self, page: Ulid, rev: RevisionType, content: Option<Vec<u8>>, time: DateTime<Utc>) -> Result<()> {
@@ -380,12 +396,25 @@ impl DB {
         let tag = util::preprocess_tag(&tag);
         self.push_revision(id, RevisionType::RemoveTag(tag.clone()), None).await?;
         if !self.mem.pages.contains_key(&id) { return Err(Error::NotFound) }
-        self.mem.tags.entry(tag.clone()).or_default().remove(&id);
+        // in case we e.g. remove #a/b/c but #a/b/x still exists, more complicated logic is required
+        // the easiest way to make this work is just to remove all tags from the index then reinsert them
+        for tag in self.mem.pages[&id].tags.iter() {
+            for hier in util::hierarchical_tags(tag) {
+                self.mem.tags.entry(id).or_default().remove(&hier);
+                self.mem.tags_inv.entry(hier).or_default().remove(&id);
+            }
+        }
         let page = {
             let page = self.mem.pages.get_mut(&id).unwrap();
             page.tags.remove(&tag);
             page.clone()
         };
+        for tag in page.tags.iter() {
+            for hier in util::hierarchical_tags(tag) {
+                self.mem.tags.entry(id).or_default().insert(hier.clone());
+                self.mem.tags_inv.entry(hier).or_default().insert(id);
+            }
+        }
         self.write_object(id, Object::Page(page), None).await?;
         Ok(())
     }

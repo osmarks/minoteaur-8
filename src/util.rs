@@ -211,6 +211,22 @@ pub fn fuzzy_match(query: &str, target: &str) -> Option<i32> {
     Some(score)
 }
 
+fn split_tag<'a>(tag: &'a str) -> impl Iterator<Item=String> + 'a {
+    tag.split('/').map(to_slug)
+}
+
 pub fn preprocess_tag(tag: &str) -> String {
-    tag.split('/').map(to_slug).intersperse("/".to_string()).collect()
+    split_tag(tag).intersperse("/".to_string()).collect()
+}
+
+pub fn hierarchical_tags(tag: &str) -> Vec<String> {
+    split_tag(tag).fold(Vec::new(), |mut acc, x| {
+        let mut next = acc.last().map(Clone::clone).unwrap_or_else(String::new);
+        if !next.is_empty() {
+            next.push('/');
+        }
+        next.push_str(&x);
+        acc.push(next);
+        acc
+    })
 }

@@ -1,6 +1,7 @@
 /target
 /node_modules
 files
+filesold
 *.sqlite3
 *.sqlite3-*
 /static
