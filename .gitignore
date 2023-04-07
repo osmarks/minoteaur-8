@@ -6,3 +6,4 @@ files
 /static
 minoteaur.sqlite3
 *.tar
+/config.toml
