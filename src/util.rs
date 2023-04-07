@@ -208,6 +208,10 @@ pub fn fuzzy_match(query: &str, target: &str) -> Option<i32> {
             }
         }
     }
+    // punish extra text on the end
+    while let Some(_) =  target_gs.next() {
+        score -= CONFIG.title_search.distance_penalty;
+    }
     Some(score)
 }
 

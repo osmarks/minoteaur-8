@@ -109,13 +109,13 @@
         display: flex
         &.vertical
             display: block
-        .navigation, .meta
-            width: 100%
-        .main-ui
-            max-width: 100%
-            overflow: scroll
-            padding-top: 1em
-            padding-bottom: 1em
+            .navigation, .meta
+                width: 100%
+            .main-ui
+                max-width: 100%
+                overflow: scroll
+                padding-top: 1em
+                padding-bottom: 1em
 
     .navigation, .meta
         flex-shrink: 0
