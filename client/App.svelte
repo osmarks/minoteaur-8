@@ -1,17 +1,17 @@
 <style lang="sass">
-    \:global(*)
+    :global(*)
         box-sizing: border-box
 
-    \:global(html)
+    :global(html)
         scrollbar-color: black lightgray
             
-    \:global(body)
+    :global(body)
         font-family: "Fira Sans", "Noto Sans", "Segoe UI", Verdana, sans-serif
         font-weight: 300
         //margin: 0
         //min-height: 100vh
 
-    \:global(strong)
+    :global(strong)
         font-weight: bold
 
     @mixin header
@@ -22,24 +22,24 @@
         //a
             //color: inherit
 
-    \:global(h1)
+    :global(h1)
         @include header
-    \:global(h2)
+    :global(h2)
         @include header
-    \:global(h3)
+    :global(h3)
         @include header
-    \:global(h4)
+    :global(h4)
         @include header
-    \:global(h5)
+    :global(h5)
         @include header
-    \:global(h6)
+    :global(h6)
         @include header
-    \:global(ul)
+    :global(ul)
         list-style-type: square
         padding: 0
         padding-left: 1em
 
-    \:global(a.wikilink)
+    :global(a.wikilink)
         text-decoration: none
         //color: #0165fc
         //font-style: italic
@@ -50,41 +50,41 @@
         padding: 1px
         &:hover
             text-decoration: underline
-    \:global(a.wikilink.nonexistent)
+    :global(a.wikilink.nonexistent)
         background: red
-    \:global(a.wikilink.tag)
+    :global(a.wikilink.tag)
         background: limegreen
 
-    \:global(.error)
+    :global(.error)
         color: red
 
-    \:global(ul.inline li)
+    :global(ul.inline li)
         display: inline
-    \:global(ul.inline li:not(:last-child)::after)
+    :global(ul.inline li:not(:last-child)::after)
         content: ", "
-    \:global(ul.inline)
+    :global(ul.inline)
         padding: 0
-    \:global(ul.very-inline)
+    :global(ul.very-inline)
         display: inline
 
-    \:global(input[type=text])
+    :global(input[type=text])
         border: 1px solid gray
 
-    \:global(button)
+    :global(button)
         border: 1px solid gray
         margin-left: -1px
 
-    \:global(ul)
+    :global(ul)
         margin: 0
 
-    \:global(.markdown)
-        \:global(img)
+    :global(.markdown)
+        :global(img)
             max-width: 100%
-        \:global(blockquote)
+        :global(blockquote)
             border-left: 0.2em solid black
             margin-left: 0
             padding-left: 0.3em
-        \:global(.captioned-image-block)
+        :global(.captioned-image-block)
             border: 1px solid gray
             padding: 0.5em
             background: lightgray
@@ -92,17 +92,17 @@
             margin: -1px
             width: calc(50% - 1px)
             min-width: 15em
-            \:global(img)
+            :global(img)
                 width: 100%
-        \:global(.ralign)
+        :global(.ralign)
             text-align: right
-    \:global(.snippet p)
+    :global(.snippet p)
         margin: 0
 
-    \:global(nav)
+    :global(nav)
         margin-bottom: 0.5em
 
-    \:global(.footnote-definition > p)
+    :global(.footnote-definition > p)
         display: inline-block
 
     main
@@ -143,14 +143,16 @@
     @media print
         .sidebar
             display: none
-        \:global(nav)
+        :global(nav)
             display: none
 
-    :global(code)
+    :global(code), :global(pre)
         background: black
         color: white
         font-weight: 600
         padding: 1px
+    :global(pre)
+        padding: 4px
 </style>
 
 <script>
@@ -176,6 +178,9 @@
     var searchMode = false
     var currentPage
 
+    history.scrollRestoration = "manual"
+    const scrollHeights = {}
+
     var recent = []
     const broadcast = new BroadcastChannel("minoteaur")
 
@@ -200,12 +205,15 @@
         }
         return parts
     }
-    const unparseURL = (parts, query = {}) => { window.location.hash = "/" + parts.filter(x => x != "").map(encodeURIComponent).join("/") }
+    const actuallyUnparse = (parts, query = {}) => "/" + parts.filter(x => x != "").map(encodeURIComponent).join("/")
+    const unparseURL = (parts, query = {}) => { window.location.hash = actuallyUnparse(parts, query) }
 
     const setTitle = title => document.title = `${title} - Minoteaur`
     
+    let previousURL = actuallyUnparse(parseURL())
     const updateRoute = async () => {
         const parts = parseURL()
+        scrollHeights[previousURL] = window.scrollY
         console.log(parts)
         searchMode = false
         currentPage = null
@@ -270,6 +278,12 @@
             child = Index
             setTitle("Index")
         }
+        const unparsed = actuallyUnparse(parts)
+        if (scrollHeights[unparsed] !== undefined) {
+            let height = scrollHeights[unparsed]
+            setTimeout(() => window.scrollTo(0, height)) // should run after component is rendered
+        }
+        previousURL = unparsed
     }
 
     const switchPageState = newState => {

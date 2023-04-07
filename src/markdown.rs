@@ -282,7 +282,7 @@ pub fn snippet<'a>(input: &'a str, db: &DB) -> String {
                 }
             },
             _ if finish => (),
-            Event(Text(ref str)) => {
+            Event(Text(ref str)) | Event(Code(ref str)) => {
                 just_did_linebreak = false;
                 if !finish {
                     total_text += str.len();
