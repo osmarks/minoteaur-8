@@ -245,6 +245,7 @@ pub fn snippet<'a>(input: &'a str, db: &DB) -> String {
     let mut lines = 0;
     let mut in_codeblock = false;
     let mut finish = false;
+    let mut just_did_linebreak = true;
     for x in parse(input) {
         match x {
             Event(Start(Tag::CodeBlock(_))) => {
@@ -256,6 +257,13 @@ pub fn snippet<'a>(input: &'a str, db: &DB) -> String {
             _ if in_codeblock => (),
             _ if is_start_of_block_element(&x) => {
                 depth += 1;
+                if !finish {
+                    if !just_did_linebreak {
+                        events.push(Event(HardBreak));
+                        lines += 1;
+                        just_did_linebreak = true;
+                    }
+                }
             },
             _ if is_end_of_block_element(&x) => {
                 depth -= 1;
@@ -266,19 +274,16 @@ pub fn snippet<'a>(input: &'a str, db: &DB) -> String {
                     }
                 }
                 if !finish {
-                    match events.get(events.len() - 1) {
-                        Some(Event(HardBreak)) => (),
-                        _ => {
-                            events.push(Event(HardBreak));
-                            lines += 1;
-                        }
+                    if !just_did_linebreak {
+                        events.push(Event(HardBreak));
+                        lines += 1;
+                        just_did_linebreak = true;
                     }
                 }
             },
-            Event(Code(_)) if finish => (),
-            Maths(_, _) if finish => (),
-            Wikilink(_, _, _) if finish => (),
+            _ if finish => (),
             Event(Text(ref str)) => {
+                just_did_linebreak = false;
                 if !finish {
                     total_text += str.len();
                     events.push(x);

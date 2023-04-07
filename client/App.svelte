@@ -41,14 +41,19 @@
 
     \:global(a.wikilink)
         text-decoration: none
-        color: #0165fc
-        font-style: italic
+        //color: #0165fc
+        //font-style: italic
+        background: blue
+        color: white
+        font-weight: 500
+        font-family: monospace
+        padding: 1px
         &:hover
             text-decoration: underline
     \:global(a.wikilink.nonexistent)
-        color: red
+        background: red
     \:global(a.wikilink.tag)
-        color: limegreen
+        background: limegreen
 
     \:global(.error)
         color: red
@@ -113,6 +118,11 @@
             width: 100%
             input[type=search]
                 font-size: 1.5em
+    .sidebar
+        height: calc(100vh - 16px)
+        overflow-y: scroll
+        position: sticky
+        top: 8px
     .meta
         margin-left: 8px
 
@@ -128,6 +138,19 @@
 
     .search-input
         margin-top: 1rem
+
+    // TODO
+    @media print
+        .sidebar
+            display: none
+        \:global(nav)
+            display: none
+
+    :global(code)
+        background: black
+        color: white
+        font-weight: 600
+        padding: 1px
 </style>
 
 <script>
@@ -154,9 +177,19 @@
     var currentPage
 
     var recent = []
+    const broadcast = new BroadcastChannel("minoteaur")
 
     generalStorage.getItem("recent").then(x => {
         recent = x || []
+    })
+    const syncRecent = () => {
+        recent = recent
+        broadcast.postMessage(["recent", recent])
+    }
+    broadcast.addEventListener("message", ev => {
+        const type = ev.data[0]
+        if (type === "reload") window.location.reload()
+        else if (type === "recent") { recent = ev.data[1] }
     })
 
     const parseURL = () => {
@@ -188,7 +221,7 @@
                 recent.push([ currentPage, page.title ])
                 if (recent.length > 8) recent.shift()
                 generalStorage.setItem("recent", recent)
-                recent = recent
+                syncRecent()
             }
             params = { id: currentPage, page }
             page.id = currentPage
@@ -214,12 +247,12 @@
         }
         else if (parts[0] === "search") {
             child = null
-            page = null
             searchMode = true
             if (parts[1]) {
                 searchQuery = parts[1]
                 await searchInputHandler()
             }
+            page = null
             setTitle("Search")
         }
         else if (parts[0] === "create") {
@@ -231,8 +264,8 @@
             child = Create
             setTitle(`Creating ${parts[1] || "page"}`)
         } else {
-            page = null
             const { recent_changes, random_pages, dead_links, stats } =  await rpc("IndexPage", null)
+            page = null
             params = { recentChanges: recent_changes.map(([revision, page]) => ({ ...revision, pageData: page })), randomPages: random_pages, deadLinks: dead_links, stats }
             child = Index
             setTitle("Index")
@@ -287,7 +320,7 @@
 <svelte:window on:hashchange={updateRoute} />
 
 <main>
-    <div class={"navigation " + (searchMode ? "search-mode" : "")}>
+    <div class={"navigation " + (searchMode ? "search-mode" : "sidebar")}>
         <LinkButton href="#/" color="#5170d7">Index</LinkButton>
         <LinkButton href="#/search" color="#fac205">Search</LinkButton>
         <LinkButton href="#/create" color="#bc13fe">Create</LinkButton>
@@ -324,7 +357,7 @@
         </div>
     {/if}
     {#if page}
-        <div class="meta">
+        <div class="meta sidebar">
             <MetadataSidebar page={page} />
         </div>
     {/if}

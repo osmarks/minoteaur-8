@@ -143,7 +143,7 @@ pub fn parse_query(s: &str) -> Query {
         if w.starts_with('#') {
             tags.insert(preprocess_tag(&w[1..]));
         } else {
-            standard_toks.extend(w.unicode_words().map(InlinableString::from));
+            standard_toks.extend(w.unicode_words().map(|x| InlinableString::from(x.to_lowercase())));
         }
     }
     (standard_toks, tags)

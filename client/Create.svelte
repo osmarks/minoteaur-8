@@ -18,7 +18,7 @@
 <LargeButton onclick={done} color="#bf77f6">Done</LargeButton>
 {#if error}
     {#if error.type === "Conflict"}
-        <Error>Page already exists: <a class="wikilink" href="#/page/{error.arg}">{title}</a>.</Error>
+        <Error>Page already exists: <Wikilink title={title} id={error.arg}></Wikilink>.</Error>
     {:else}
         <Error>{error}</Error>
     {/if}
@@ -29,6 +29,7 @@
     import Error from "./Error.svelte"
     import rpc from "./rpc.js"
     import DeleteButton from "./DeleteButton.svelte"
+    import Wikilink from "./Wikilink.svelte"
     import { setRoute, submitIfEnterKey } from "./util.js"
 
     export let title = ""

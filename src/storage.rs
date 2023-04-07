@@ -67,7 +67,6 @@ pub struct PageMeta {
     pub tags: BTreeSet<String>,
     pub size: util::ContentSize,
     pub snippet: String,
-    pub snippet_html: String,
     pub icon_filename: Option<String>
 }
 impl PageMeta {
@@ -77,7 +76,6 @@ impl PageMeta {
         PageMeta {
             id: page.id, updated: page.updated, created: page.created, title: page.title.clone(), names: page.names.clone(), tags: page.tags.clone(), size: page.size,
             icon_filename: page.icon_filename.clone(),
-            snippet_html: markdown::render(&snippet, db, false),
             snippet
         }
     }

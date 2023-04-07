@@ -4,6 +4,7 @@
 <script>
     import RevisionHistory from "./RevisionHistory.svelte"
     import ShortPageDescription from "./ShortPageDescription.svelte"
+    import Wikilink from "./Wikilink.svelte"
 
 	export let recentChanges
     export let randomPages
@@ -21,7 +22,7 @@
 <h2>Dead Links</h2>
 {#each deadLinks as link}
 <ul>
-    <li><a href={`#/page/${link[0]}`} class="wikilink">{link[1]}</a> → <a href={`#/create/${link[2]}`} class="wikilink nonexistent">{link[3]}</a></li>
+    <li><Wikilink id={link[0]} title={link[1]} /> → <a href={`#/create/${link[2]}`} class="wikilink nonexistent">{link[3]}</a></li>
 </ul>
 {/each}
 

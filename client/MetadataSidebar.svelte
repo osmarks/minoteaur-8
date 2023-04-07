@@ -27,7 +27,7 @@
             {/if}
             </li>
         {#if alreadyExists}
-            <Error>Page already exists: <a class="wikilink" href="#/page/{alreadyExists[0]}">{alreadyExists[1]}</a>.</Error>
+            <Error>Page already exists: <Wikilink title={alreadyExists[1]} id={alreadyExists[0]} />.</Error>
         {/if}
         </ul>
     </div>
@@ -42,7 +42,7 @@
         <ul>
         {#each Object.values(page.backlinks) as [backlink, title]}
             <li>
-                <a href={`#/page/${backlink.from}`} class="wikilink">{title}</a>
+                <Wikilink id={backlink.from} title={title} />
                 {#if backlink.text.toLowerCase() != page.title.toLowerCase()}
                     {` (as ${backlink.text})`}
                 {/if}
@@ -58,6 +58,7 @@
     import Loading from "./Loading.svelte"
     import Error from "./Error.svelte"
     import rpc from "./rpc.js"
+    import Wikilink from "./Wikilink.svelte"
     import DeleteButton from "./DeleteButton.svelte"
 
     export let page

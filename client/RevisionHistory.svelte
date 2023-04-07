@@ -1,6 +1,6 @@
 <script>
-
     import IconHeader from "./IconHeader.svelte"
+    import Wikilink from "./Wikilink.svelte"
     import LinkButton from "./LinkButton.svelte"
     import { formatDate } from "./util.js"
 
@@ -21,7 +21,7 @@
     {#each revs as rev}
         <li>
             {#if !page}
-                <a class="wikilink" href={`#/page/${rev.page}`}>{rev.pageData.title}</a>
+                <Wikilink title={rev.pageData.title} id={rev.page} />
             {/if}
             <div>{formatDate(rev.time)}</div>
             {#if rev.ty == "PageCreated"}
