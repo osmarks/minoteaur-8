@@ -398,7 +398,7 @@
         </div>
     {/if}
     {#if page}
-        <div class="meta sidebar">
+        <div class={"meta " + vertical ? "" : "sidebar"}>
             <MetadataSidebar page={page} />
         </div>
     {/if}
