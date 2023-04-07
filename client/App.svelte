@@ -292,11 +292,9 @@
         }
         const unparsed = actuallyUnparse(parts)
         previousURL = unparsed
-        if (scrollHeights[unparsed] !== undefined) {
-            let height = scrollHeights[unparsed]
-            await tick()
-            window.scrollTo(0, height)
-        }
+        let height = scrollHeights[unparsed] || 0
+        await tick()
+        window.scrollTo(0, height)
     }
 
     const switchPageState = newState => {
