@@ -319,13 +319,20 @@
     var searchQuery
     var searchResults
 
-    const searchInputHandler = async () => {
+    const debounce = (func, timeout = 200) => {
+        let timer
+        return () => {
+            clearTimeout(timer)
+            timer = setTimeout(() => { func.apply(this) }, timeout)
+        };
+    }
+    const searchInputHandler = debounce(async () => {
         if (searchQuery) {
             searchResults = await rpc("Search", searchQuery)
         } else {
             searchResults = { title_matches: [], content_matches: [] }
         }
-    }
+    })
 
     const searchKeypress = ev => {
         if (ev.key === "Enter" && searchResults) {
