@@ -150,7 +150,7 @@
 
     // TODO
     @media print
-        .sidebar
+        .hide-in-print
             display: none
         :global(nav)
             display: none
@@ -175,12 +175,19 @@
     import RevisionHistory from "./RevisionHistory.svelte"
     import ShortPageDescription from "./ShortPageDescription.svelte"
     import { registerShortcut, generalStorage } from "./util.js"
+    import Wikilink from "./Wikilink.svelte"
     import LinkButton from "./LinkButton.svelte"
 
     import rpc from "./rpc.js"
     import MetadataSidebar from "./MetadataSidebar.svelte"
 
-    let vertical = window.innerHeight > window.innerWidth
+    let vertical
+    // This is a somewhat horrible hack, but I wanted to simultaneously support desktop windows becoming vertical and phone screens.
+    // Just checking screen.orientation doesn't work on desktop and just checking innerHeight/innerWidth breaks if I use a virtual keyboard.
+    const recomputeVertical = () => {
+        vertical = screen.orientation.type.startsWith("portrait") || window.innerHeight > window.innerWidth
+    }
+    recomputeVertical()
 
     window.rpc = rpc
 
@@ -217,6 +224,7 @@
         }
         return parts
     }
+    // TODO: query part probably means something
     const actuallyUnparse = (parts, query = {}) => "/" + parts.filter(x => x != "").map(encodeURIComponent).join("/")
     const unparseURL = (parts, query = {}) => { window.location.hash = actuallyUnparse(parts, query) }
 
@@ -337,7 +345,7 @@
     let clearButton
 
     const hideSearchResults = async () => {
-        if (searchResults) {
+        if (searchResults && clearButton) {
             searchResults.content_matches = []
             await tick()
             clearButton.scrollIntoView()
@@ -352,10 +360,10 @@
     registerShortcut("v", () => switchPageState(""))
 </script>
 
-<svelte:window on:hashchange={updateRoute} />
+<svelte:window on:hashchange={updateRoute} on:resize={recomputeVertical} />
 
-<main class={vertical ? "vertical" : ""}>
-    <div class={"navigation " + (searchMode ? "search-mode" : vertical ? "" : "sidebar")}>
+<main class:vertical={vertical}>
+    <div class="navigation hide-in-print" class:search-mode={searchMode} class:sidebar={!vertical && !searchMode}>
         <LinkButton href="#/" color="#5170d7">Index</LinkButton>
         <LinkButton href="#/search" color="#fac205">Search</LinkButton>
         <LinkButton href="#/create" color="#bc13fe">Create</LinkButton>
@@ -363,7 +371,7 @@
             {#if recent}
                 Last: <ul class="inline very-inline">
                     {#each reverse(recent) as r}
-                        <li><a class="wikilink" href={`#/page/${r[0]}`}>{r[1]}</a></li>
+                        <li><Wikilink id={r[0]} title={r[1]} /></li>
                     {/each}
                 </ul>
             {/if}
@@ -372,13 +380,13 @@
         {#if searchResults}
             <ul class="inline">
                 {#each searchResults.title_matches as [id, title]}
-                    <li><a class="wikilink" href={`#/page/${id}`}>{title}</a></li>
+                    <li><Wikilink id={id} on:click={hideSearchResults} title={title} /></li>
                 {/each}
             </ul>
             <div class="result-pages">
                 {#each searchResults.content_matches as [id, page]}
                 <div class="result-page">
-                    <ShortPageDescription page={page} />
+                    <ShortPageDescription page={page} on:click={hideSearchResults} />
                 </div>
                 {/each}
             </div>
@@ -396,7 +404,7 @@
         </div>
     {/if}
     {#if page}
-        <div class={"meta " + vertical ? "" : "sidebar"}>
+        <div class="meta hide-in-print" class:sidebar={!vertical}>
             <MetadataSidebar page={page} />
         </div>
     {/if}

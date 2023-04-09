@@ -6,7 +6,7 @@
     export let page
 </script>
 
-<IconHeader page={page} basic={true}><Wikilink id={page.id} title={page.title} /></IconHeader>
+<IconHeader page={page} basic={true}><Wikilink id={page.id} title={page.title} on:click /></IconHeader>
 <ul class="inline">
     {#each page.tags as tag}
         <li><a class="wikilink tag" href={`#/search/${encodeURIComponent("#" + tag)}`}>#{tag}</a></li>

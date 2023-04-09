@@ -1,5 +1,6 @@
 import { format, formatDistanceToNowStrict } from "date-fns"
 import localforage from "localforage"
+import { onDestroy } from 'svelte'
 
 export let setRoute = (...parts) => {
     window.location.hash = "#/" + parts.map(encodeURIComponent).join("/")
@@ -20,10 +21,11 @@ const keyboardShortcuts = {}
 // TODO: reregistering things on every component initialization is possibly actually bad
 export let registerShortcut = (key, handler) => {
     keyboardShortcuts[key] = handler
+    onDestroy(() => keyboardShortcuts[key] = undefined)
 }
 
 window.addEventListener("keydown", ev => {
-    if (ev.altKey && ev.key in keyboardShortcuts) {
+    if (ev.altKey && ev.key in keyboardShortcuts && keyboardShortcuts[ev.key]) {
         keyboardShortcuts[ev.key](ev)
         ev.preventDefault()
     }

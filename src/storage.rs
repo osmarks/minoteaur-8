@@ -174,12 +174,7 @@ impl DB {
                     for name in page.names.iter() {
                         self.mem.page_lookup.insert(Slug::new(name), id);
                     }
-                    for tag in page.tags.iter() {
-                        for hier in util::hierarchical_tags(tag) {
-                            self.mem.tags.entry(id).or_default().insert(hier.clone());
-                            self.mem.tags_inv.entry(hier).or_default().insert(id);
-                        }
-                    }
+                    self.index_tags(id, page.tags.iter());
                     self.mem.pages.insert(id, page);
                 },
                 Object::Revision(rh) => {
@@ -195,6 +190,15 @@ impl DB {
             self.parse_and_index_page(id)?;
         }
         Ok(())
+    }
+
+    fn index_tags<'a, I: Iterator<Item=&'a String>>(&mut self, id: Ulid, tags: I) {
+        for tag in tags {
+            for hier in util::hierarchical_tags(tag) {
+                self.mem.tags.entry(id).or_default().insert(hier.clone());
+                self.mem.tags_inv.entry(hier).or_default().insert(id);
+            }
+        }
     }
 
     async fn write_object(&mut self, id: Ulid, object: Object, long_data: Option<Vec<u8>>) -> Result<()> {
@@ -285,12 +289,7 @@ impl DB {
         let id = Ulid::generate();
         self.add_name_internal(id, &title)?;
         self.push_revision(id, RevisionType::PageCreated, None).await?;
-        for tag in initial_tags.iter() {
-            for hier in util::hierarchical_tags(&tag) {
-                self.mem.tags_inv.entry(hier.clone()).or_default().insert(id);
-                self.mem.tags.entry(id).or_default().insert(hier);
-            }
-        }
+        self.index_tags(id, initial_tags.iter());
         let page = Page {
             content: String::new(),
             updated: Utc::now(),
@@ -352,10 +351,7 @@ impl DB {
         let tag = util::preprocess_tag(&tag);
         self.push_revision(id, RevisionType::AddTag(tag.clone()), None).await?;
         if !self.mem.pages.contains_key(&id) { return Err(Error::NotFound) }
-        for hier in util::hierarchical_tags(&tag) {
-            self.mem.tags_inv.entry(hier.clone()).or_default().insert(id);
-            self.mem.tags.entry(id).or_default().insert(hier);
-        }
+        self.index_tags(id, std::iter::once(&tag));
         let page = {
             let page = self.mem.pages.get_mut(&id).unwrap();
             page.tags.insert(tag);
@@ -415,12 +411,7 @@ impl DB {
             page.tags.remove(&tag);
             page.clone()
         };
-        for tag in page.tags.iter() {
-            for hier in util::hierarchical_tags(tag) {
-                self.mem.tags.entry(id).or_default().insert(hier.clone());
-                self.mem.tags_inv.entry(hier).or_default().insert(id);
-            }
-        }
+        self.index_tags(id, page.tags.iter());
         self.write_object(id, Object::Page(page), None).await?;
         Ok(())
     }

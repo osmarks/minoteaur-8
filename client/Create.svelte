@@ -2,27 +2,33 @@
     .title
         width: 100%
         font-size: 1.2em
+    div
+        padding-bottom: 1em
 </style>
 
 <h1>Create Page</h1>
-<input class="title" bind:value={title} />
-<br/>
+<div>
+    <input class="title" bind:value={title} />
+</div>
 <h2>Tags</h2>
-<ul class="inline">
-    {#each tags as tag}
-        <li><DeleteButton onclick={() => removeTag(tag)} /><a class="wikilink tag" href={`#/search/${encodeURIComponent("#" + tag)}`}>#{tag}</a></li>
-    {/each}
-    <input type="text" placeholder="add another" bind:value={newTag} on:keydown={submitIfEnterKey(addTag)}><button on:click={addTag}>+</button>
-</ul>
-<br/>
-<LargeButton onclick={done} color="#bf77f6">Done</LargeButton>
-{#if error}
-    {#if error.type === "Conflict"}
-        <Error>Page already exists: <Wikilink title={title} id={error.arg}></Wikilink>.</Error>
-    {:else}
-        <Error>{error}</Error>
+<div>
+    <ul class="inline">
+        {#each tags as tag}
+            <li><DeleteButton onclick={() => removeTag(tag)} /><a class="wikilink tag" href={`#/search/${encodeURIComponent("#" + tag)}`}>#{tag}</a></li>
+        {/each}
+        <input type="text" placeholder="add another" bind:value={newTag} on:keydown={submitIfEnterKey(addTag)}><button on:click={addTag}>+</button>
+    </ul>
+</div>
+<div>
+    <LargeButton onclick={done} color="#bf77f6">Done</LargeButton>
+    {#if error}
+        {#if error.type === "Conflict"}
+            <Error>Page already exists: <Wikilink title={title} id={error.arg}></Wikilink>.</Error>
+        {:else}
+            <Error>{error}</Error>
+        {/if}
     {/if}
-{/if}
+</div>
 
 <script>
     import LargeButton from "./LargeButton.svelte"
