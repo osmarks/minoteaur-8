@@ -100,7 +100,7 @@
             if (!k) return
             const v = parts.slice(1).join(" ").trim()
             const vFloat = parseFloat(v)
-            return [k, !isNaN(vFloat) ? {"Number": vFloat} : {"Text": v}]
+            return [k, !isNaN(vFloat) && /^\-?\d+(.\d+)?$/.exec(v) ? {"Number": vFloat} : {"Text": v}]
         }
         return text.split("\n").map(mapLine).filter(x => x)
     }
