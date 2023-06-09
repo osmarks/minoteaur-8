@@ -44,3 +44,25 @@ export const submitIfEnterKey = fn => ev => {
         fn()
     }
 }
+
+export const ihash = x => {
+    x = ((x >> 16) ^ x) * 0x45d9f3b
+    x = ((x >> 16) ^ x) * 0x45d9f3b
+    x = (x >> 16) ^ x
+    return x
+}
+
+export const shash = str => {
+    let hash = 0;
+    for (let i = 0, len = str.length; i < len; i++) {
+        let chr = str.charCodeAt(i);
+        hash = (hash << 5) - hash + chr;
+        hash |= 0; // Convert to 32bit integer
+    }
+    return ihash(hash)
+}
+
+const palette = [0x8dd3c7, 0xffffb3, 0xbebada, 0xfb8072, 0x80b1d3, 0xfdb462, 0x3de69, 0xfccde5, 0xd9d9d9, 0xbc80bd, 0xccebc5, 0xffed6f]
+const applyOffset = (i, x) => Math.min(Math.max(ihash(i) % 16 - 8 + x, 0), 255)
+const offsetColor = (i, x) => applyOffset(i, (x >> 16) & 0xFF) << 16 | applyOffset(i + 1, (x >> 8) & 0xFF) << 8 | applyOffset(i + 2, x & 0xFF)
+const numToHexCol = x => "#" + x.toString(16).padStart(6, "0")

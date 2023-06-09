@@ -109,6 +109,7 @@ impl Default for Config {
 
 lazy_static::lazy_static! {
     pub static ref CONFIG: Config = load_config().unwrap();
+    pub static ref VERSION: String = format!("Minoteaur 8 {}, built {}", &env!("VERGEN_GIT_SHA")[..8], env!("VERGEN_BUILD_DATE"));
 }
 
 fn load_config() -> Result<Config> {
@@ -168,8 +169,9 @@ pub mod query {
         pub structured_data_query: Option<(Operator, Value)>
     }
 
+
     pub fn parse(s: &str) -> Query {
-        s.split_whitespace().map(|mut t| {
+        let use_term = |mut t: &str| {
             let mut tag = false;
             let mut exact = false;
             let mut negate = false;
@@ -201,7 +203,24 @@ pub mod query {
                 term: InlinableString::from(t),
                 tag, exact, negate, structured_data_query: None
             }
-        }).collect()
+        };
+        let mut out = Vec::new();
+        let mut buf = String::new();
+        let mut quoted = false;
+        for char in s.chars() {
+            match char {
+                '"' => quoted = !quoted,
+                x if x.is_whitespace() && !quoted => {
+                    out.push(use_term(&buf));
+                    buf.clear();
+                },
+                x => buf.push(x)
+            }
+        }
+        if !buf.is_empty() {
+            out.push(use_term(&buf));
+        }
+        out
     }
 
     pub fn plaintext(q: &Query) -> String {
@@ -221,7 +240,7 @@ pub mod query {
     pub fn structured_data(q: &Query) -> structured_data::Query {
         q.iter().filter_map(|x| x.structured_data_query.as_ref().map(|d| {
             let (operator, value) = d.clone();
-            (x.term.to_string(), operator, value)
+            (x.term.to_string(), operator, value, x.negate)
         })).collect()
     }
 }
@@ -310,6 +329,7 @@ pub fn hierarchical_tags(tag: &str) -> Vec<String> {
 
 pub mod structured_data {
     use serde::{Serialize, Deserialize};
+    use std::cmp::Ordering;
 
     #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
     pub enum Value {
@@ -329,7 +349,7 @@ pub mod structured_data {
 
     pub type PageData = Vec<(String, Value)>;
 
-    pub type Query = Vec<(String, Operator, Value)>;
+    pub type Query = Vec<(String, Operator, Value, bool)>;
 
     fn define_operator<A: Fn(f64, f64) -> bool, B: Fn(&str, &str) -> bool>(numerical_fn: A, str_fn: B, pv: &Value, qv: &Value) -> bool {
         match (pv, qv) {
@@ -341,7 +361,7 @@ pub mod structured_data {
     }
 
     pub fn matches(data: &PageData, query: &Query) -> bool {
-        let query_matches = |(key, operator, value): &(String, Operator, Value)| {
+        let query_matches = |(key, operator, value, negated): &(String, Operator, Value, bool)| {
             data.iter().any(|(page_key, page_value)| {
                 if page_key != key { return false }
                 match operator {
@@ -352,8 +372,26 @@ pub mod structured_data {
                     Operator::Lt => define_operator(|m, n| m < n, |m, n| m < n, page_value, value),
                     Operator::Lte => define_operator(|m, n| m <= n, |m, n| m <= n, page_value, value),
                 }
-            })
+            }) != *negated
         };
         query.iter().all(query_matches)
+    }
+
+    pub fn cmp_by_key(key: &String, d1: &PageData, d2: &PageData) -> Ordering {
+        let d1 = d1.iter().filter_map(|(k, v)| if k == key { Some(v) } else { None });
+        let d2 = d2.iter().filter_map(|(k, v)| if k == key { Some(v) } else { None });
+        for (x, y) in d1.zip(d2) {
+            let ord = match (x, y) {
+                (Value::Number(m), Value::Number(n)) => m.total_cmp(&n),
+                (Value::Text(t), Value::Number(n)) => t.cmp(&n.to_string()),
+                (Value::Number(m), Value::Text(u)) => m.to_string().cmp(&u),
+                (Value::Text(t), Value::Text(u)) => t.cmp(&u)
+            };
+            match ord {
+                Ordering::Equal => (),
+                x => return x
+            }
+        }
+        Ordering::Equal
     }
 }

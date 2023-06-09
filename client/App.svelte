@@ -166,6 +166,9 @@
     :global(pre)
         padding: 4px
 
+    select
+        border-radius: 0
+        border: 1px solid gray
 </style>
 
 <script>
@@ -324,6 +327,9 @@
 
     var searchQuery
     var searchResults
+    var searchOrder = "Relevance"
+    var searchReverse = false
+    var searchOrderField = ""
 
     const debounce = (func, timeout = 200) => {
         let timer
@@ -334,7 +340,7 @@
     }
     const searchInputHandler = debounce(async () => {
         if (searchQuery) {
-            searchResults = await rpc("Search", searchQuery)
+            searchResults = await rpc("Search", [searchQuery, searchOrder === "Field" ? {"Data": searchOrderField} : searchOrder, searchReverse])
         } else {
             searchResults = { title_matches: [], content_matches: [] }
         }
@@ -390,6 +396,19 @@
             {/if}
         </div>
         <input type="search" bind:value={searchQuery} on:input={searchInputHandler} on:keydown={searchKeypress} bind:this={searchInput} placeholder="Search" class="search-input">
+        <div>
+            <select bind:value={searchOrder} on:input={searchInputHandler}>
+                <option>Relevance</option>
+                <option>Alphabetical</option>
+                <option>Updated</option>
+                <option>Created</option>
+                <option>Field</option>
+            </select>
+            <input type="checkbox" bind:checked={searchReverse} on:input={searchInputHandler}>
+            {#if searchOrder === "Field"}
+                <input bind:value={searchOrderField} on:input={searchInputHandler}>
+            {/if}
+        </div>
         {#if searchResults}
             <ul class="inline">
                 {#each searchResults.title_matches as [id, title]}

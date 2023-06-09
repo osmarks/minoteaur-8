@@ -12,7 +12,7 @@ use std::str::FromStr;
 
 use crate::error::{Error, Result};
 use crate::search::Index;
-use crate::util::{self, query};
+use crate::util;
 use util::{Slug, CONFIG, structured_data::PageData as StructuredData};
 use crate::markdown;
 

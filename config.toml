@@ -1,1 +1,9 @@
-log_level = "debug"
+log_level = 'info'
+allow_backdate = true
+
+[katex_macros]
+'\prob' = '\mathbb{P}\left( #1 \right)'
+'\expect' = '\mathbb{E}\left( #1 \right)'
+'\Cov' = '\mathrm{Cov}'
+'\Var' = '\mathrm{Var}'
+'\ip' = '\left\langle #1 , #2 \right\rangle'

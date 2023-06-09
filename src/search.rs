@@ -118,7 +118,7 @@ impl Index {
         self.total_document_length += document_len;
     }
 
-    pub fn search(&self, query: Query, max_results: usize) -> Vec<(Ulid, f64, usize)> {
+    pub fn search<F: FnOnce(&mut Vec<(Ulid, f64)>)>(&self, query: Query, max_results: usize, rank_callback: F) -> Vec<(Ulid, f64, usize)> {
         let mut tokens = HashMap::new();
         for query_part in query.iter() {
             if query_part.tag || query_part.structured_data_query.is_some() { continue }
@@ -170,7 +170,7 @@ impl Index {
             .into_iter()
             .filter(|(_, s)| *s > 0.0)
             .collect();
-        result.sort_unstable_by(|(_, sa), (_, sb)| sb.partial_cmp(sa).unwrap());
+        rank_callback(&mut result);
         result.truncate(max_results);
         result
             .into_iter()

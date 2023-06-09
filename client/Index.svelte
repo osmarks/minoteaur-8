@@ -41,6 +41,7 @@
 <h1>Index</h1>
 
 <p>{stats.total_words} words and {stats.total_links} links in {stats.total_pages} pages with {stats.total_revisions} revisions.</p>
+<p>Running {stats.version}.</p>
 
 <h2>Recent Changes</h2>
 <RevisionHistory revs={recentChanges} />

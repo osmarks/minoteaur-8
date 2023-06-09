@@ -69,9 +69,32 @@ struct RenderedLink {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
+pub enum SortOrder {
+    Relevance,
+    Updated,
+    Created,
+    Alphabetical,
+    Data(String)
+}
+fn sort_search_results<'a>(db: &'a MemoryStore, order: SortOrder, reverse: bool) -> impl FnOnce(&mut Vec<(Ulid, f64)>) + 'a {
+    move |results| {
+        match order {
+            SortOrder::Alphabetical => results.sort_unstable_by(|(id, _), (id2, _)| db.pages[id].title.cmp(&db.pages[id2].title)),
+            SortOrder::Created => results.sort_unstable_by_key(|(id, _)| -db.pages[id].created.timestamp_millis()),
+            SortOrder::Updated => results.sort_unstable_by_key(|(id, __)| -db.pages[id].updated.timestamp_millis()),
+            SortOrder::Relevance => results.sort_unstable_by(|(_, s), (_, t)| t.partial_cmp(s).unwrap()),
+            SortOrder::Data(key) => results.sort_unstable_by(|(id, _), (id2, _)| util::structured_data::cmp_by_key(&key, &db.pages[id].structured_data, &db.pages[id2].structured_data))
+        }
+        if reverse {
+            results.reverse()
+        }
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize)]
 enum APIReq {
     GetPage(Ulid, Option<Ulid>),
-    Search(String),
+    Search(String, SortOrder, bool),
     UpdatePage(Ulid, String),
     CreatePage { title: String, tags: Vec<String> },
     AddName(Ulid, String),
@@ -92,7 +115,8 @@ struct Stats {
     total_revisions: usize,
     total_links: usize,
     total_words: u64,
-    tag_counts: HashMap<String, usize>
+    tag_counts: HashMap<String, usize>,
+    version: String
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -194,7 +218,7 @@ async fn api(Json(input): Json<APIReq>, Extension(db): Extension<DBHandle>) -> R
                 revision
             }))
         },
-        APIReq::Search(query) => {
+        APIReq::Search(query, order, reverse) => {
             let db = db.read().await;
             let data = db.read();
             let query = util::query::parse(&query);
@@ -202,14 +226,16 @@ async fn api(Json(input): Json<APIReq>, Extension(db): Extension<DBHandle>) -> R
             let tags = util::query::tags(&query);
             let structured_data = util::query::structured_data(&query);
             let results = if plain.len() > 0 {
-                data.search_index.search(query, CONFIG.max_search_results).into_iter()
+                data.search_index.search(query, CONFIG.max_search_results, sort_search_results(&db.mem, order, reverse)).into_iter()
                     .map(|(page, score, snippet_offset)| (page, PageMeta::from_page(&data.pages[&page], &db, snippet_offset), score))
                     .filter(|(id, _meta, _score)| db.has_all_tags(*id, &tags) && structured_data::matches(&data.pages[id].structured_data, &structured_data))
                     .collect()
             } else {
-                data.pages.keys().copied()
-                    .map(|page| (page, PageMeta::from_page(&data.pages[&page], &db, 0), 1.0))
-                    .filter(|(id, _meta, _score)| db.has_all_tags(*id, &tags) && structured_data::matches(&data.pages[id].structured_data, &structured_data))
+                let mut results = data.pages.keys().copied()
+                    .filter_map(|id| if db.has_all_tags(id, &tags) && structured_data::matches(&data.pages[&id].structured_data, &structured_data) { Some((id, 1.0)) } else { None })
+                    .collect();
+                sort_search_results(&db.mem, order, reverse)(&mut results);
+                results.into_iter().map(|(page, _)| (page, PageMeta::from_page(&data.pages[&page], &db, 0), 1.0))
                     .collect()
             };
             let mut title_matches: Vec<(Ulid, &str, i32)> = data.pages.iter()
@@ -285,7 +311,8 @@ async fn api(Json(input): Json<APIReq>, Extension(db): Extension<DBHandle>) -> R
                 total_links: data.links.values().map(|(out, _in)| out.len()).sum(),
                 total_revisions: data.revisions.len(),
                 total_words: data.search_index.total_document_length,
-                tag_counts: data.tags_inv.iter().map(|(tag, pages)| (tag.clone(), pages.len())).collect()
+                tag_counts: data.tags_inv.iter().map(|(tag, pages)| (tag.clone(), pages.len())).collect(),
+                version: util::VERSION.clone()
             };
 
             Ok(Json(APIRes::IndexPage { recent_changes: db.recent_changes(16), random_pages: random_samples, dead_links, stats }))
