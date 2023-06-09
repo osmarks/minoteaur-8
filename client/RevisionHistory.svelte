@@ -2,6 +2,7 @@
     import IconHeader from "./IconHeader.svelte"
     import Wikilink from "./Wikilink.svelte"
     import LinkButton from "./LinkButton.svelte"
+    import StructuredDataView from "./StructuredDataView.svelte"
     import { formatDate } from "./util.js"
 
     export let page
@@ -48,6 +49,8 @@
                 Removed file {rev.ty.RemoveFile}.
             {:else if "SetIconFilename" in rev.ty}
                 Set icon to <a href={`/file/${rev.page}/${encodeURIComponent(rev.ty.SetIconFilename)}`}>{rev.ty.SetIconFilename}</a>.
+            {:else if "SetStructuredData" in rev.ty}
+                Updated structured data to <StructuredDataView kvPairs={rev.ty.SetStructuredData} inline={true} />.
             {/if}
         </li>
     {/each}

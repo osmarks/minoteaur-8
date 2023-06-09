@@ -67,7 +67,7 @@
 
     let uploadState = null
 
-    const extantFiles = {}
+    let extantFiles = {}
 
     for (const file of Object.values(page.files)) {
         extantFiles[file.filename] = file

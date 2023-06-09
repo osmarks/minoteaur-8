@@ -12,8 +12,8 @@ use std::str::FromStr;
 
 use crate::error::{Error, Result};
 use crate::search::Index;
-use crate::util;
-use util::{Slug, CONFIG};
+use crate::util::{self, query};
+use util::{Slug, CONFIG, structured_data::PageData as StructuredData};
 use crate::markdown;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -52,7 +52,9 @@ pub struct Page {
     #[serde(default)]
     pub files: HashMap<String, File>,
     #[serde(default)]
-    pub icon_filename: Option<String>
+    pub icon_filename: Option<String>,
+    #[serde(default)]
+    pub structured_data: StructuredData
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -67,7 +69,8 @@ pub struct PageMeta {
     pub tags: BTreeSet<String>,
     pub size: util::ContentSize,
     pub snippet: String,
-    pub icon_filename: Option<String>
+    pub icon_filename: Option<String>,
+    pub structured_data: StructuredData
 }
 impl PageMeta {
     pub fn from_page(page: &Page, db: &DB, snippet_offset: usize) -> Self {
@@ -75,7 +78,7 @@ impl PageMeta {
         let snippet = snippet.trim().to_string();
         PageMeta {
             id: page.id, updated: page.updated, created: page.created, title: page.title.clone(), names: page.names.clone(), tags: page.tags.clone(), size: page.size,
-            icon_filename: page.icon_filename.clone(),
+            icon_filename: page.icon_filename.clone(), structured_data: page.structured_data.clone(),
             snippet
         }
     }
@@ -91,7 +94,8 @@ pub enum RevisionType {
     RemoveTag(String),
     AddFile(String),
     RemoveFile(String),
-    SetIconFilename(Option<String>)
+    SetIconFilename(Option<String>),
+    SetStructuredData(StructuredData)
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -300,7 +304,8 @@ impl DB {
             size: util::ContentSize::compute(""),
             id,
             files: HashMap::new(),
-            icon_filename: None
+            icon_filename: None,
+            structured_data: Vec::new()
         };
         self.mem.pages.insert(id, page.clone());
         self.write_object(id, Object::Page(page), None).await?;
@@ -363,6 +368,10 @@ impl DB {
 
     pub fn has_tag(&self, id: Ulid, tag: &str) -> bool {
         self.read().tags.get(&id).map(|x| x.contains(tag)).unwrap_or(false)
+    }
+
+    pub fn has_all_tags(&self, id: Ulid, tags: &Vec<(String, bool)>) -> bool {
+        tags.iter().all(|t| t.1 == self.has_tag(id, &t.0))
     }
 
     pub async fn push_revision_at(&mut self, page: Ulid, rev: RevisionType, content: Option<Vec<u8>>, time: DateTime<Utc>) -> Result<()> {
@@ -486,6 +495,15 @@ impl DB {
             }
         }
         page.icon_filename = filename;
+        let page = page.clone();
+        self.write_object(page_id, Object::Page(page), None).await?;
+        Ok(())
+    }
+
+    pub async fn set_structured_data(&mut self, page_id: Ulid, data: StructuredData) -> Result<()> {
+        self.push_revision(page_id, RevisionType::SetStructuredData(data.clone()), None).await?;
+        let page = self.mem.pages.get_mut(&page_id).ok_or(Error::NotFound)?;
+        page.structured_data = data;
         let page = page.clone();
         self.write_object(page_id, Object::Page(page), None).await?;
         Ok(())

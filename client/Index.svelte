@@ -5,11 +5,37 @@
     import RevisionHistory from "./RevisionHistory.svelte"
     import ShortPageDescription from "./ShortPageDescription.svelte"
     import Wikilink from "./Wikilink.svelte"
+    import TagTree from "./TagTree.svelte"
 
 	export let recentChanges
     export let randomPages
     export let deadLinks
     export let stats
+
+    const buildTree = stats => {
+        const tree = { count: 0, ochildren: {}, name: "" }
+        for (const [tag, count] of Object.entries(stats.tag_counts)) {
+            const hier = tag.split("/")
+            let ptr = tree
+            for (const level of hier) {
+                ptr.ochildren[level] = ptr.ochildren[level] || { count: 0, ochildren: {}, name: (ptr.name ? ptr.name + "/" : "") + level }
+                ptr = ptr.ochildren[level]
+            }
+            ptr.count = count
+        }
+        const rewriteTree = tree => {
+            const newChildren = Object.values(tree.ochildren)
+            newChildren.forEach(rewriteTree)
+            tree.owncount = tree.count - newChildren.map(x => x.count).reduce((a, b) => a + b, 0)
+            tree.children = newChildren
+            newChildren.sort((a, b) => b.count - a.count)
+        }
+        rewriteTree(tree)
+        console.log("produced", tree)
+        return tree
+    }
+
+    $: tree = buildTree(stats)
 </script>
 
 <h1>Index</h1>
@@ -34,3 +60,7 @@
         </li>
     {/each}
 </ul>
+
+<h2>Tags</h2>
+
+<TagTree {...tree} />

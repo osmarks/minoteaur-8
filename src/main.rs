@@ -22,6 +22,7 @@ mod util;
 use error::*;
 use storage::*;
 use util::CONFIG;
+use util::structured_data;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -81,7 +82,8 @@ enum APIReq {
     IndexPage,
     DeleteFile(Ulid, String),
     SetIcon(Ulid, Option<String>),
-    UpdatePageRetroactive(Ulid, String, i64)
+    UpdatePageRetroactive(Ulid, String, i64),
+    SetStructuredData(Ulid, structured_data::PageData)
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -89,7 +91,8 @@ struct Stats {
     total_pages: usize,
     total_revisions: usize,
     total_links: usize,
-    total_words: u64
+    total_words: u64,
+    tag_counts: HashMap<String, usize>
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -105,7 +108,8 @@ enum APIRes {
     RemovedTag(String),
     IndexPage { recent_changes: Vec<(RevisionHeader, PageMeta)>, random_pages: Vec<PageMeta>, dead_links: Vec<(Ulid, String, util::Slug, String)>, stats: Stats },
     FileDeleted,
-    IconSet
+    IconSet,
+    StructuredDataSet
 }
 
 async fn file_upload(mut multipart: Multipart, Path(page_id): Path<Ulid>, Extension(db): Extension<DBHandle>) -> Result<Json<Vec<storage::File>>> {
@@ -193,22 +197,23 @@ async fn api(Json(input): Json<APIReq>, Extension(db): Extension<DBHandle>) -> R
         APIReq::Search(query) => {
             let db = db.read().await;
             let data = db.read();
-            let query = util::parse_query(&query);
-            let plain = util::query_plain_parts(&query);
-            let tags = query.1;
-            let results = if query.0.len() > 0 {
-                data.search_index.search(query.0, CONFIG.max_search_results).into_iter()
+            let query = util::query::parse(&query);
+            let plain = util::query::plaintext(&query);
+            let tags = util::query::tags(&query);
+            let structured_data = util::query::structured_data(&query);
+            let results = if plain.len() > 0 {
+                data.search_index.search(query, CONFIG.max_search_results).into_iter()
                     .map(|(page, score, snippet_offset)| (page, PageMeta::from_page(&data.pages[&page], &db, snippet_offset), score))
-                    .filter(|(id, _meta, _score)| tags.iter().all(|t| db.has_tag(*id, t)))
+                    .filter(|(id, _meta, _score)| db.has_all_tags(*id, &tags) && structured_data::matches(&data.pages[id].structured_data, &structured_data))
                     .collect()
             } else {
                 data.pages.keys().copied()
                     .map(|page| (page, PageMeta::from_page(&data.pages[&page], &db, 0), 1.0))
-                    .filter(|(id, _meta, _score)| tags.iter().all(|t| db.has_tag(*id, t)))
+                    .filter(|(id, _meta, _score)| db.has_all_tags(*id, &tags) && structured_data::matches(&data.pages[id].structured_data, &structured_data))
                     .collect()
             };
             let mut title_matches: Vec<(Ulid, &str, i32)> = data.pages.iter()
-                .filter(|(id, _page)| tags.iter().all(|t| db.has_tag(**id, t)))
+                .filter(|(id, _page)| tags.iter().all(|t| t.1 == db.has_tag(**id, &t.0)))
                 .filter_map(|(i, p)| util::fuzzy_match(&plain, &p.title).map(|s| (i.clone(), p.title.as_str(), s)))
                 .collect();
             title_matches.sort_unstable_by_key(|(_, _, s)| -s);
@@ -279,7 +284,8 @@ async fn api(Json(input): Json<APIReq>, Extension(db): Extension<DBHandle>) -> R
                 total_pages: data.pages.len(),
                 total_links: data.links.values().map(|(out, _in)| out.len()).sum(),
                 total_revisions: data.revisions.len(),
-                total_words: data.search_index.total_document_length
+                total_words: data.search_index.total_document_length,
+                tag_counts: data.tags_inv.iter().map(|(tag, pages)| (tag.clone(), pages.len())).collect()
             };
 
             Ok(Json(APIRes::IndexPage { recent_changes: db.recent_changes(16), random_pages: random_samples, dead_links, stats }))
@@ -294,6 +300,11 @@ async fn api(Json(input): Json<APIReq>, Extension(db): Extension<DBHandle>) -> R
             let mut db = db.write().await;
             db.set_icon_filename(page, icon).await?;
             Ok(Json(APIRes::IconSet))
+        },
+        APIReq::SetStructuredData(page, data) => {
+            let mut db = db.write().await;
+            db.set_structured_data(page, data).await?;
+            Ok(Json(APIRes::StructuredDataSet))
         }
     }
 }

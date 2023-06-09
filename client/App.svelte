@@ -54,6 +54,8 @@
         background: red
     :global(a.wikilink.tag)
         background: limegreen
+    :global(a.wikilink.structured-data)
+        background: blueviolet
 
     :global(.error)
         color: red
@@ -64,6 +66,7 @@
         content: ", "
     :global(ul.inline)
         padding: 0
+        display: inline
     :global(ul.very-inline)
         display: inline
 
@@ -184,8 +187,11 @@
     let vertical
     // This is a somewhat horrible hack, but I wanted to simultaneously support desktop windows becoming vertical and phone screens.
     // Just checking screen.orientation doesn't work on desktop and just checking innerHeight/innerWidth breaks if I use a virtual keyboard.
+    // I also found out that for some horrifying reason switching my window manager out has made Firefox always consider my screen orientation "portrait-primary"
+    // So I guess just assume all touchscreens are phones.
+    // I am very sorry.
     const recomputeVertical = () => {
-        vertical = screen.orientation.type.startsWith("portrait") || window.innerHeight > window.innerWidth
+        vertical = "ontouchstart" in window || window.innerHeight > window.innerWidth
     }
     recomputeVertical()
 
@@ -412,7 +418,9 @@
     {/if}
     {#if page}
         <div class="meta hide-in-print" class:sidebar={!vertical}>
-            <MetadataSidebar page={page} />
+            {#key page.id}
+                <MetadataSidebar page={page} />
+            {/key}
         </div>
     {/if}
 </main>

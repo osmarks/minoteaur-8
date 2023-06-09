@@ -1,5 +1,4 @@
 use unicode_segmentation::UnicodeSegmentation;
-use inlinable_string::InlinableString;
 use serde::{Deserialize, Serialize, Deserializer, de::{self, Visitor}};
 use std::collections::{HashSet, HashMap};
 use fnv::FnvHasher;
@@ -62,16 +61,34 @@ impl Default for SnippetConfig {
 
 #[derive(Deserialize)]
 #[serde(default)]
+pub struct SearchConfig {
+    pub k_1: f64,
+    pub b: f64,
+    pub exact_match_weighting: f64
+}
+impl Default for SearchConfig {
+    fn default() -> Self {
+        Self {
+            k_1: 1.2,
+            b: 0.75,
+            exact_match_weighting: 2.0
+        }
+    }
+}
+
+#[derive(Deserialize)]
+#[serde(default)]
 pub struct Config {
     pub title_search: TitleSearchConfig,
     pub paths: PathsConfig,
     pub snippet: SnippetConfig,
+    pub search: SearchConfig,
     pub listen_address: String,
     pub log_level: String,
     pub allow_backdate: bool,
     pub max_edit_distance: u32,
     pub max_search_results: usize,
-    pub katex_macros: HashMap<String, String>
+    pub katex_macros: HashMap<String, String>,
 }
 impl Default for Config {
     fn default() -> Self {
@@ -79,6 +96,7 @@ impl Default for Config {
             title_search: Default::default(),
             paths: Default::default(),
             snippet: Default::default(),
+            search: Default::default(),
             listen_address: "[::]:7600".to_string(),
             log_level: "info".to_string(),
             allow_backdate: false,
@@ -134,23 +152,78 @@ impl Slug {
     pub fn new(s: &str) -> Self { Self(to_slug(s)) }
 }
 
-type Query = (Vec<InlinableString>, HashSet<String>);
+pub mod query {
+    use inlinable_string::InlinableString;
+    use std::str::FromStr;
 
-pub fn parse_query(s: &str) -> Query {
-    let mut standard_toks = Vec::new();
-    let mut tags = HashSet::new();
-    for w in s.split_ascii_whitespace() {
-        if w.starts_with('#') {
-            tags.insert(preprocess_tag(&w[1..]));
-        } else {
-            standard_toks.extend(w.unicode_words().map(|x| InlinableString::from(x.to_lowercase())));
-        }
+    use super::structured_data::{Value, Operator, self};
+
+    pub type Query = Vec<Term>;
+    #[derive(Debug)]
+    pub struct Term {
+        pub term: InlinableString,
+        pub tag: bool,
+        pub exact: bool,
+        pub negate: bool,
+        pub structured_data_query: Option<(Operator, Value)>
     }
-    (standard_toks, tags)
-}
 
-pub fn query_plain_parts(q: &Query) -> String {
-    q.0.concat()
+    pub fn parse(s: &str) -> Query {
+        s.split_whitespace().map(|mut t| {
+            let mut tag = false;
+            let mut exact = false;
+            let mut negate = false;
+            if let Some(rest) = t.strip_prefix("-") { negate = true; t = rest; }
+            if let Some(rest) = t.strip_prefix("#") { tag = true; t = rest; }
+            if let Some(rest) = t.strip_prefix("!") { exact = true; t = rest; }
+            if let Some(rest) = t.strip_prefix("=") {
+                if let Some((start, mut end)) = rest.split_once(":") {
+                    let mut operator = Operator::Equal;
+                    if let Some(rest) = end.strip_prefix("*") { end = rest; operator = Operator::PrefixEqual }
+                    if let Some(rest) = end.strip_prefix(">=") { end = rest; operator = Operator::Gte }
+                    if let Some(rest) = end.strip_prefix("<=") { end = rest; operator = Operator::Lte }
+                    if let Some(rest) = end.strip_prefix(">") { end = rest; operator = Operator::Gt }
+                    if let Some(rest) = end.strip_prefix("<") { end = rest; operator = Operator::Lt }
+                    let value = match f64::from_str(end) {
+                        Ok(value) => Value::Number(value),
+                        Err(_) => Value::Text(end.to_string())
+                    };
+                    return Term {
+                        tag: false, exact: false, negate,
+                        term: InlinableString::from(start),
+                        // TODO
+                        structured_data_query: Some((operator, value))
+                    }
+                }
+                t = rest;
+            }
+            Term {
+                term: InlinableString::from(t),
+                tag, exact, negate, structured_data_query: None
+            }
+        }).collect()
+    }
+
+    pub fn plaintext(q: &Query) -> String {
+        let mut g = String::new();
+        for term in q.iter() {
+            if !term.tag && !term.negate && term.structured_data_query.is_none() {
+                g.push_str(&term.term);
+            }
+        }
+        g
+    }
+
+    pub fn tags(q: &Query) -> Vec<(String, bool)> {
+        q.iter().filter_map(|x| if x.tag { Some((x.term.to_string(), !x.negate)) } else { None }).collect()
+    }
+
+    pub fn structured_data(q: &Query) -> structured_data::Query {
+        q.iter().filter_map(|x| x.structured_data_query.as_ref().map(|d| {
+            let (operator, value) = d.clone();
+            (x.term.to_string(), operator, value)
+        })).collect()
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Copy)]
@@ -233,4 +306,54 @@ pub fn hierarchical_tags(tag: &str) -> Vec<String> {
         acc.push(next);
         acc
     })
+}
+
+pub mod structured_data {
+    use serde::{Serialize, Deserialize};
+
+    #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+    pub enum Value {
+        Text(String),
+        Number(f64)
+    }
+
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    pub enum Operator {
+        Equal,
+        PrefixEqual,
+        Gt,
+        Gte,
+        Lt,
+        Lte
+    }
+
+    pub type PageData = Vec<(String, Value)>;
+
+    pub type Query = Vec<(String, Operator, Value)>;
+
+    fn define_operator<A: Fn(f64, f64) -> bool, B: Fn(&str, &str) -> bool>(numerical_fn: A, str_fn: B, pv: &Value, qv: &Value) -> bool {
+        match (pv, qv) {
+            (Value::Number(m), Value::Number(n)) => numerical_fn(*m, *n),
+            (Value::Text(t), Value::Number(n)) => str_fn(t, &n.to_string()),
+            (Value::Number(m), Value::Text(u)) => str_fn(&m.to_string(), u),
+            (Value::Text(t), Value::Text(u)) => str_fn(t, u),
+        }
+    }
+
+    pub fn matches(data: &PageData, query: &Query) -> bool {
+        let query_matches = |(key, operator, value): &(String, Operator, Value)| {
+            data.iter().any(|(page_key, page_value)| {
+                if page_key != key { return false }
+                match operator {
+                    Operator::Equal => value == page_value,
+                    Operator::PrefixEqual => define_operator(|_, _| false, |m, n| m.starts_with(n), page_value, value),
+                    Operator::Gt => define_operator(|m, n| m > n, |m, n| m > n, page_value, value),
+                    Operator::Gte => define_operator(|m, n| m >= n, |m, n| m >= n, page_value, value),
+                    Operator::Lt => define_operator(|m, n| m < n, |m, n| m < n, page_value, value),
+                    Operator::Lte => define_operator(|m, n| m <= n, |m, n| m <= n, page_value, value),
+                }
+            })
+        };
+        query.iter().all(query_matches)
+    }
 }

@@ -2,6 +2,7 @@ use rusty_ulid::Ulid;
 use std::collections::{BTreeMap, HashSet, HashMap};
 use inlinable_string::InlinableString;
 use unicode_segmentation::UnicodeSegmentation;
+use crate::util::{query::*, CONFIG};
 
 type Token = InlinableString;
 
@@ -117,24 +118,33 @@ impl Index {
         self.total_document_length += document_len;
     }
 
-    pub fn search(&self, query_tokens: Vec<InlinableString>, max_results: usize) -> Vec<(Ulid, f64, usize)> {
-        let mut tokens: HashMap<InlinableString, f64> = query_tokens.into_iter().map(|x| (x, 1.0)).collect();
-        for token in tokens.clone().keys() {
-            for other_token in self.inverted_index.keys() {
-                let distance = triple_accel::levenshtein(token.as_bytes(), other_token.as_bytes());
-                if distance > 0 && distance <= 3 {
-                    // Exponentially decrease ranking weighting with increased edit distance
-                    let new_weight = 1. / (distance as f64).exp();
-                    let weight = tokens.entry(other_token.clone()).or_default();
-                    if new_weight > *weight {
-                        *weight = new_weight;
+    pub fn search(&self, query: Query, max_results: usize) -> Vec<(Ulid, f64, usize)> {
+        let mut tokens = HashMap::new();
+        for query_part in query.iter() {
+            if query_part.tag || query_part.structured_data_query.is_some() { continue }
+            let token = &query_part.term;
+            let mut scale = if query_part.negate { -1.0 } else { 1.0 };
+            if query_part.exact {
+                scale *= CONFIG.search.exact_match_weighting;
+            }
+            if !query_part.exact {
+                for other_token in self.inverted_index.keys() {
+                    let distance = triple_accel::levenshtein(token.as_bytes(), other_token.as_bytes());
+                    if distance > 0 && distance <= 3 {
+                        // Exponentially decrease ranking weighting with increased edit distance
+                        let new_weight = 1. / (distance as f64).exp() * scale;
+                        let weight: &mut f64 = tokens.entry(other_token.clone()).or_default();
+                        if new_weight.abs() > weight.abs() {
+                            *weight = new_weight;
+                        }
                     }
                 }
             }
-            if !self.inverted_index.contains_key(token) {
-                tokens.remove(token);
+            if self.inverted_index.contains_key(token) {
+                tokens.insert(token.clone(), scale);
             }
-        }
+        }  
+
         let cap_n = self.documents.len() as f64;
         for (token, weight) in tokens.iter_mut() {
             let n = self.inverted_index[token].documents.len() as f64;
@@ -142,8 +152,8 @@ impl Index {
             let idf = ((cap_n - n + 0.5) / (n + 0.5)).ln_1p();
             *weight *= idf;
         }
-        let k_1 = 1.2;
-        let b = 0.75;
+        let k_1 = CONFIG.search.k_1;
+        let b = CONFIG.search.b;
         let mut documents = HashMap::new();
         let avgdl = self.total_document_length as f64 / self.documents.len() as f64;
         for (token, weight) in tokens.iter() {
@@ -158,6 +168,7 @@ impl Index {
         }
         let mut result: Vec<(Ulid, f64)> = documents
             .into_iter()
+            .filter(|(_, s)| *s > 0.0)
             .collect();
         result.sort_unstable_by(|(_, sa), (_, sb)| sb.partial_cmp(sa).unwrap());
         result.truncate(max_results);
