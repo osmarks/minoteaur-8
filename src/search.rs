@@ -118,7 +118,7 @@ impl Index {
         self.total_document_length += document_len;
     }
 
-    pub fn search<F: FnOnce(&mut Vec<(Ulid, f64)>)>(&self, query: Query, max_results: usize, rank_callback: F) -> Vec<(Ulid, f64, usize)> {
+    pub fn search<F: FnOnce(&mut Vec<(Ulid, f64)>)>(&self, query: Query, max_results: usize, rank_callback: F) -> (Vec<(Ulid, f64, usize)>, usize) {
         let mut tokens = HashMap::new();
         for query_part in query.iter() {
             if query_part.tag || query_part.structured_data_query.is_some() { continue }
@@ -171,11 +171,12 @@ impl Index {
             .filter(|(_, s)| *s > 0.0)
             .collect();
         rank_callback(&mut result);
+        let original_len = result.len();
         result.truncate(max_results);
-        result
+        (result
             .into_iter()
             .map(|(document_id, score)| (document_id, score, best_highlight_location(&tokens, &self.documents[&document_id])))
-            .collect()
+            .collect(), original_len)
     }
 
     pub fn new() -> Self {

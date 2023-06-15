@@ -183,6 +183,7 @@
     import { registerShortcut, generalStorage } from "./util.js"
     import Wikilink from "./Wikilink.svelte"
     import LinkButton from "./LinkButton.svelte"
+    import Error from "./Error.svelte"
 
     import rpc from "./rpc.js"
     import MetadataSidebar from "./MetadataSidebar.svelte"
@@ -205,6 +206,7 @@
     var page
     var searchMode = false
     var currentPage
+    var lastError
 
     history.scrollRestoration = "manual"
     const scrollHeights = {}
@@ -351,6 +353,7 @@
             const results = (ev.shiftKey ? searchResults.title_matches : searchResults.content_matches).filter(x => x[0] !== currentPage)
             if (results.length > 0) {
                 switchPage(results[0][0])
+                hideSearchResults()
             }
         }
     }
@@ -379,7 +382,14 @@
     registerShortcut("v", () => switchPageState(""))
 </script>
 
-<svelte:window on:hashchange={updateRoute} on:resize={recomputeVertical} />
+<svelte:window on:hashchange={updateRoute} on:resize={recomputeVertical} on:error={e => { lastError = e }} on:unhandledrejection={e => { lastError = e.reason }} />
+
+{#if lastError}
+    <Error>
+        <div>{lastError}</div>
+        <div>Try again or <button on:click={() => window.location.reload()}>refresh</button>.</div>
+    </Error>
+{/if}
 
 <main class:vertical={vertical}>
     <div class="navigation hide-in-print" class:search-mode={searchMode} class:sidebar={!vertical && !searchMode}>
@@ -410,6 +420,7 @@
             {/if}
         </div>
         {#if searchResults}
+            {#if searchResults.content_matches_count}<div>{searchResults.content_matches_count !== searchResults.content_matches.length ? `${searchResults.content_matches_count} results (truncated)` : `${searchResults.content_matches_count} results`}.</div>{/if}
             <ul class="inline">
                 {#each searchResults.title_matches as [id, title]}
                     <li><Wikilink id={id} on:click={hideSearchResults} title={title} /></li>

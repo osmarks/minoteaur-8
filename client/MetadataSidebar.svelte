@@ -43,8 +43,9 @@
 
     <h2>Structured Data</h2>
     <div class="structured-data">
-        <button class="no-merge" on:click={editStructuredData}>{editingStructuredData ? "Done" : "Edit"}</button>
+        <button on:click={editStructuredData}>{editingStructuredData ? "Done" : "Edit"}</button>
         {#if editingStructuredData}
+            <button on:click={exitStructuredData}>Exit</button>
             <textarea use:autosize bind:value={structuredDataText} on:keydown={keydown} />
         {:else}
             <StructuredDataView kvPairs={page.structured_data} />
@@ -105,6 +106,9 @@
         return text.split("\n").map(mapLine).filter(x => x)
     }
 
+    const exitStructuredData = () => {
+        editingStructuredData = false
+    }
     const editStructuredData = async () => {
         if (editingStructuredData) {
             console.log(structuredDataText)

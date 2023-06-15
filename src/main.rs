@@ -122,7 +122,7 @@ struct Stats {
 #[derive(Debug, Serialize, Deserialize)]
 enum APIRes {
     Page { #[serde(flatten)] page: Page, rendered_content: String, backlinks: Vec<(RenderedLink, String)>, revision: Option<RevisionHeader> },
-    SearchResult { content_matches: Vec<(Ulid, PageMeta, f64)>, title_matches: Vec<(Ulid, String)> },
+    SearchResult { content_matches: Vec<(Ulid, PageMeta, f64)>, title_matches: Vec<(Ulid, String)>, content_matches_count: usize },
     NewPage(Ulid),
     PageUpdated,
     AddedName(String),
@@ -225,18 +225,21 @@ async fn api(Json(input): Json<APIReq>, Extension(db): Extension<DBHandle>) -> R
             let plain = util::query::plaintext(&query);
             let tags = util::query::tags(&query);
             let structured_data = util::query::structured_data(&query);
-            let results = if plain.len() > 0 {
-                data.search_index.search(query, CONFIG.max_search_results, sort_search_results(&db.mem, order, reverse)).into_iter()
+            let (results, content_matches_count) = if plain.len() > 0 {
+                let (search_output, result_count) = data.search_index.search(query, CONFIG.max_search_results, sort_search_results(&db.mem, order, reverse));
+                (search_output.into_iter()
                     .map(|(page, score, snippet_offset)| (page, PageMeta::from_page(&data.pages[&page], &db, snippet_offset), score))
                     .filter(|(id, _meta, _score)| db.has_all_tags(*id, &tags) && structured_data::matches(&data.pages[id].structured_data, &structured_data))
-                    .collect()
+                    .collect(), result_count)
             } else {
                 let mut results = data.pages.keys().copied()
                     .filter_map(|id| if db.has_all_tags(id, &tags) && structured_data::matches(&data.pages[&id].structured_data, &structured_data) { Some((id, 1.0)) } else { None })
                     .collect();
                 sort_search_results(&db.mem, order, reverse)(&mut results);
-                results.into_iter().map(|(page, _)| (page, PageMeta::from_page(&data.pages[&page], &db, 0), 1.0))
-                    .collect()
+                let result_count = results.len();
+                results.truncate(CONFIG.max_search_results);
+                (results.into_iter().map(|(page, _)| (page, PageMeta::from_page(&data.pages[&page], &db, 0), 1.0))
+                    .collect(), result_count)
             };
             let mut title_matches: Vec<(Ulid, &str, i32)> = data.pages.iter()
                 .filter(|(id, _page)| tags.iter().all(|t| t.1 == db.has_tag(**id, &t.0)))
@@ -246,7 +249,8 @@ async fn api(Json(input): Json<APIReq>, Extension(db): Extension<DBHandle>) -> R
             title_matches.truncate(CONFIG.title_search.max_results);
             Ok(Json(APIRes::SearchResult { 
                 content_matches: results,
-                title_matches: title_matches.into_iter().map(|(i, t, _s)| (i, t.to_string())).collect()
+                title_matches: title_matches.into_iter().map(|(i, t, _s)| (i, t.to_string())).collect(),
+                content_matches_count
             }))
         },
         APIReq::UpdatePage(id, content) => {

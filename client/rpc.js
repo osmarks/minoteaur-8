@@ -7,7 +7,7 @@ export default async (cmd, args) => {
         try {
             var errdata = JSON.parse(text)
         } catch(e) {
-            var err = Error(text)
+            var err = Error("RPC failed: " + text)
             err.code = req.statusCode
             err.statusText = req.statusText
             throw err
