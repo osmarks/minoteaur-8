@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 use rusty_ulid::Ulid;
-use std::collections::{HashMap, hash_map::Entry, HashSet, BTreeSet, BTreeMap};
+use std::collections::{HashMap, btree_map::Entry, HashSet, BTreeSet, BTreeMap};
 use std::sync::Arc;
 use chrono::prelude::*;
 use sqlx::sqlite::{SqlitePool, SqlitePoolOptions, SqliteConnectOptions};
@@ -8,6 +8,7 @@ use sqlx::Row;
 use tokio::sync::RwLock;
 use anyhow::Context;
 use futures_util::TryStreamExt;
+use std::ops::Bound;
 use std::str::FromStr;
 
 use crate::error::{Error, Result};
@@ -114,7 +115,7 @@ type Links = HashMap<Ulid, (
 
 pub struct MemoryStore {
     pub pages: HashMap<Ulid, Page>,
-    pub page_lookup: HashMap<Slug, Ulid>,
+    pub page_lookup: BTreeMap<Slug, Ulid>,
     pub search_index: Index,
     pub links: Links,
     pub unresolved_links: HashMap<Slug, HashMap<Ulid, (String, usize)>>,
@@ -152,7 +153,7 @@ impl DB {
             backing: pool,
             mem: MemoryStore {
                 pages: HashMap::new(),
-                page_lookup: HashMap::new(),
+                page_lookup: BTreeMap::new(),
                 search_index: Index::new(),
                 links: HashMap::new(),
                 unresolved_links: HashMap::new(),
@@ -512,6 +513,27 @@ impl DB {
     pub async fn push_view(&mut self, page: Ulid) -> Result<()> {
         self.write_object(Ulid::generate(), Object::PageView(PageView { time: Utc::now(), page }), None).await?;
         Ok(())
+    }
+
+    pub fn adjacent_pages(&self, slug: Slug) -> Vec<Ulid> {
+        let mut out = vec![];
+        // previous
+        match self.mem.page_lookup.range((Bound::Unbounded, Bound::Excluded(&slug))).rev().next() {
+            Some((_k, v)) => out.push(*v),
+            None => match self.mem.page_lookup.last_key_value() {
+                Some((_k, v)) => out.push(*v),
+                None => ()
+            }
+        }
+        // next
+        match self.mem.page_lookup.range((Bound::Excluded(&slug), Bound::Unbounded)).next() {
+            Some((_k, v)) => out.push(*v),
+            None => match self.mem.page_lookup.first_key_value() {
+                Some((_k, v)) => out.push(*v),
+                None => ()
+            }
+        }
+        out
     }
 }
 

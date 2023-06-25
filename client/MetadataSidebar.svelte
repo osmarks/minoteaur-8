@@ -12,6 +12,11 @@
 
 <div class="meta-root">
     <div>
+        <ul class="inline">
+            {#each page.adjacent as [id, title]}
+                <li><Wikilink id={id} title={title} /></li>
+            {/each}
+        </ul>
         <h2>Tags</h2>
         <ul class="inline">
             {#each page.tags as tag}

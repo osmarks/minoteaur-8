@@ -121,7 +121,7 @@ struct Stats {
 
 #[derive(Debug, Serialize, Deserialize)]
 enum APIRes {
-    Page { #[serde(flatten)] page: Page, rendered_content: String, backlinks: Vec<(RenderedLink, String)>, revision: Option<RevisionHeader> },
+    Page { #[serde(flatten)] page: Page, rendered_content: String, backlinks: Vec<(RenderedLink, String)>, revision: Option<RevisionHeader>, adjacent: Vec<(Ulid, String)> },
     SearchResult { content_matches: Vec<(Ulid, PageMeta, f64)>, title_matches: Vec<(Ulid, String)>, content_matches_count: usize },
     NewPage(Ulid),
     PageUpdated,
@@ -211,11 +211,13 @@ async fn api(Json(input): Json<APIReq>, Extension(db): Extension<DBHandle>) -> R
                 (link, title)
             }).collect()).unwrap_or_else(Vec::new);
             let rendered_content = tokio::task::block_in_place(|| markdown::render(&page.content, &db_, true));
+            let slug = util::Slug::new(&page.title);
             Ok(Json(APIRes::Page {
                 page,
                 rendered_content, 
                 backlinks,
-                revision
+                revision,
+                adjacent: db_.adjacent_pages(slug).into_iter().map(|x| (x, db.pages[&x].title.clone())).collect()
             }))
         },
         APIReq::Search(query, order, reverse) => {
