@@ -169,7 +169,6 @@ pub mod query {
         pub structured_data_query: Option<(Operator, Value)>
     }
 
-
     pub fn parse(s: &str) -> Query {
         let use_term = |mut t: &str| {
             let mut tag = false;
@@ -200,7 +199,7 @@ pub mod query {
                 t = rest;
             }
             Term {
-                term: InlinableString::from(t),
+                term: InlinableString::from(t.to_lowercase()),
                 tag, exact, negate, structured_data_query: None
             }
         };

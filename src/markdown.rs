@@ -1,8 +1,9 @@
-use pulldown_cmark::{html, Options, Parser, Event, Tag, escape::{self, StrWrite}, CodeBlockKind, CowStr};
+use pulldown_cmark::{html, Options, Parser, Event, Tag, escape::{self, StrWrite}, CodeBlockKind, CowStr, LinkType};
 use smallvec::SmallVec;
 use rusty_ulid::Ulid;
 use quick_js::Context;
 use std::time;
+use regex::Regex;
 
 use crate::storage::DB;
 use crate::util;
@@ -55,6 +56,11 @@ fn special_marker_char(c: char) -> Option<SpecialSyntaxMarker> {
     }
 }
 
+// https://github.com/raphlinus/pulldown-cmark/issues/494
+lazy_static::lazy_static! {
+    static ref URL_REGEX: Regex = Regex::new(r#"(https?://)[^\s/$.?#].[^\s]*[^.^\s]"#).unwrap();
+}
+
 fn parse<'a>(input: &'a str) -> impl Iterator<Item=ExtEvent<'a>> {
     let mut options = Options::empty();
     options.insert(Options::ENABLE_STRIKETHROUGH);
@@ -69,7 +75,21 @@ fn parse<'a>(input: &'a str) -> impl Iterator<Item=ExtEvent<'a>> {
         let mut resulting_events: SmallVec<[ExtEvent<'a>; 3]> = SmallVec::new();
         match (&event, &last_text) {
             (Event::Code(_), _) => (),
-            (_, Some(_last)) => resulting_events.push(ExtEvent::Event(Event::Text(std::mem::replace(&mut last_text, None).unwrap()))),
+            (_, Some(_last)) => {
+                let mut text = std::mem::replace(&mut last_text, None).unwrap();
+                while let Some(re_match) = URL_REGEX.find(&text) {
+                    // this shouldn't really have to allocate but I don't know how to make it not do that
+                    let leading = &text[..re_match.start()];
+                    resulting_events.push(ExtEvent::Event(Event::Text(CowStr::from(leading.to_string()))));
+                    let link_target = re_match.as_str().to_string();
+                    resulting_events.push(ExtEvent::Event(Event::Start(Tag::Link(LinkType::Inline, CowStr::from(link_target.clone()), "".into()))));
+                    resulting_events.push(ExtEvent::Event(Event::Text(CowStr::from(link_target.clone()))));
+                    resulting_events.push(ExtEvent::Event(Event::End(Tag::Link(LinkType::Inline, CowStr::from(link_target.clone()), "".into()))));
+                    let trailing = &text[re_match.end()..];
+                    text = CowStr::from(trailing.to_string());
+                }
+                resulting_events.push(ExtEvent::Event(Event::Text(text)));
+            },
             _ => ()
         }
         if is_event_start_of_block_element(&event) {

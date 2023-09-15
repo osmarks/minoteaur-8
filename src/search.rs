@@ -63,6 +63,12 @@ fn best_highlight_location(tokens: &HashMap<InlinableString, f64>, document: &Do
     scores.into_iter().max_by(|(_, sa), (_, sb)| sa.partial_cmp(sb).unwrap()).map(|(o, _score)| o).unwrap_or(0)
 }
 
+fn allow_edit_distance(term_length: usize) -> u32 {
+    if term_length <= 2 { return 0 }
+    else if term_length <= 5 { return 1 }
+    else { return 2 }
+}
+
 impl Index {
     pub fn insert(&mut self, id: Ulid, doc: Vec<(usize, String)>) {
         let mut counts = HashMap::new();
@@ -130,7 +136,7 @@ impl Index {
             if !query_part.exact {
                 for other_token in self.inverted_index.keys() {
                     let distance = triple_accel::levenshtein(token.as_bytes(), other_token.as_bytes());
-                    if distance > 0 && distance <= 3 {
+                    if distance > 0 && distance <= allow_edit_distance(other_token.len()) {
                         // Exponentially decrease ranking weighting with increased edit distance
                         let new_weight = 1. / (distance as f64).exp() * scale;
                         let weight: &mut f64 = tokens.entry(other_token.clone()).or_default();
