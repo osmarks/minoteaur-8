@@ -231,11 +231,13 @@ async fn api(Json(input): Json<APIReq>, Extension(db): Extension<DBHandle>) -> R
                 let (search_output, result_count) = data.search_index.search(query, CONFIG.max_search_results, sort_search_results(&db.mem, order, reverse));
                 (search_output.into_iter()
                     .map(|(page, score, snippet_offset)| (page, PageMeta::from_page(&data.pages[&page], &db, snippet_offset), score))
-                    .filter(|(id, _meta, _score)| db.has_all_tags(*id, &tags) && structured_data::matches(&data.pages[id].structured_data, &structured_data))
+                    .filter(|(id, _meta, _score)| db.has_all_tags(*id, &tags) && 
+                        structured_data::matches(&data.pages[id], &structured_data))
                     .collect(), result_count)
             } else {
                 let mut results = data.pages.keys().copied()
-                    .filter_map(|id| if db.has_all_tags(id, &tags) && structured_data::matches(&data.pages[&id].structured_data, &structured_data) { Some((id, 1.0)) } else { None })
+                    .filter_map(|id| if db.has_all_tags(id, &tags) &&
+                        structured_data::matches(&data.pages[&id], &structured_data) { Some((id, 1.0)) } else { None })
                     .collect();
                 sort_search_results(&db.mem, order, reverse)(&mut results);
                 let result_count = results.len();

@@ -330,10 +330,27 @@ pub mod structured_data {
     use serde::{Serialize, Deserialize};
     use std::cmp::Ordering;
 
+    use crate::storage::Page;
+
     #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
     pub enum Value {
         Text(String),
         Number(f64)
+    }
+
+    #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+    enum BValue<'a> {
+        Text(&'a str),
+        Number(f64)
+    }
+
+    impl BValue<'_> {
+        fn from<'a>(v: &'a Value) -> BValue<'a> {
+            match v {
+                Value::Number(x) => BValue::Number(*x),
+                Value::Text(x) => BValue::Text(x.as_str())
+            }
+        }
     }
 
     #[derive(Debug, Clone, PartialEq, Eq)]
@@ -350,18 +367,19 @@ pub mod structured_data {
 
     pub type Query = Vec<(String, Operator, Value, bool)>;
 
-    fn define_operator<A: Fn(f64, f64) -> bool, B: Fn(&str, &str) -> bool>(numerical_fn: A, str_fn: B, pv: &Value, qv: &Value) -> bool {
+    fn define_operator<'a, A: Fn(f64, f64) -> bool, B: Fn(&str, &str) -> bool>(numerical_fn: A, str_fn: B, pv: BValue<'a>, qv: BValue<'a>) -> bool {
         match (pv, qv) {
-            (Value::Number(m), Value::Number(n)) => numerical_fn(*m, *n),
-            (Value::Text(t), Value::Number(n)) => str_fn(t, &n.to_string()),
-            (Value::Number(m), Value::Text(u)) => str_fn(&m.to_string(), u),
-            (Value::Text(t), Value::Text(u)) => str_fn(t, u),
+            (BValue::Number(m), BValue::Number(n)) => numerical_fn(m, n),
+            (BValue::Text(t), BValue::Number(n)) => str_fn(t, &n.to_string()),
+            (BValue::Number(m), BValue::Text(u)) => str_fn(&m.to_string(), u),
+            (BValue::Text(t), BValue::Text(u)) => str_fn(t, u),
         }
     }
 
-    pub fn matches(data: &PageData, query: &Query) -> bool {
+    pub fn matches(page: &Page, query: &Query) -> bool {
         let query_matches = |(key, operator, value, negated): &(String, Operator, Value, bool)| {
-            data.iter().any(|(page_key, page_value)| {
+            let matches = |page_key, page_value| {
+                let value = BValue::from(value);
                 if page_key != key { return false }
                 match operator {
                     Operator::Equal => value == page_value,
@@ -371,7 +389,16 @@ pub mod structured_data {
                     Operator::Lt => define_operator(|m, n| m < n, |m, n| m < n, page_value, value),
                     Operator::Lte => define_operator(|m, n| m <= n, |m, n| m <= n, page_value, value),
                 }
-            }) != *negated
+            };
+            let mut result = page.structured_data.iter().any(|(k, v)| matches(k.as_str(), BValue::from(v)));
+            result |= matches("title", BValue::Text(page.title.as_str()));
+            for tag in &page.tags {
+                result |= matches("tag", BValue::Text(tag.as_str()));
+            }
+            result |= matches("size_words", BValue::Number(page.size.words as f64));
+            result |= matches("size_bytes", BValue::Number(page.size.bytes as f64));
+            result |= matches("size_lines", BValue::Number(page.size.lines as f64));
+            result != *negated
         };
         query.iter().all(query_matches)
     }
