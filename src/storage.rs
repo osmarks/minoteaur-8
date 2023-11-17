@@ -55,7 +55,9 @@ pub struct Page {
     #[serde(default)]
     pub icon_filename: Option<String>,
     #[serde(default)]
-    pub structured_data: StructuredData
+    pub structured_data: StructuredData,
+    #[serde(default)]
+    pub theme: Option<String>
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -71,7 +73,8 @@ pub struct PageMeta {
     pub size: util::ContentSize,
     pub snippet: String,
     pub icon_filename: Option<String>,
-    pub structured_data: StructuredData
+    pub structured_data: StructuredData,
+    pub theme: Option<String>
 }
 impl PageMeta {
     pub fn from_page(page: &Page, db: &DB, snippet_offset: usize) -> Self {
@@ -79,7 +82,7 @@ impl PageMeta {
         let snippet = snippet.trim().to_string();
         PageMeta {
             id: page.id, updated: page.updated, created: page.created, title: page.title.clone(), names: page.names.clone(), tags: page.tags.clone(), size: page.size,
-            icon_filename: page.icon_filename.clone(), structured_data: page.structured_data.clone(),
+            icon_filename: page.icon_filename.clone(), structured_data: page.structured_data.clone(), theme: page.theme.clone(),
             snippet
         }
     }
@@ -96,7 +99,8 @@ pub enum RevisionType {
     AddFile(String),
     RemoveFile(String),
     SetIconFilename(Option<String>),
-    SetStructuredData(StructuredData)
+    SetStructuredData(StructuredData),
+    SetTheme(Option<String>)
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -306,7 +310,8 @@ impl DB {
             id,
             files: HashMap::new(),
             icon_filename: None,
-            structured_data: Vec::new()
+            structured_data: Vec::new(),
+            theme: None
         };
         self.mem.pages.insert(id, page.clone());
         self.write_object(id, Object::Page(page), None).await?;
@@ -496,6 +501,15 @@ impl DB {
             }
         }
         page.icon_filename = filename;
+        let page = page.clone();
+        self.write_object(page_id, Object::Page(page), None).await?;
+        Ok(())
+    }
+
+    pub async fn set_theme(&mut self, page_id: Ulid, theme: Option<String>) -> Result<()> {
+        self.push_revision(page_id, RevisionType::SetTheme(theme.clone()), None).await?;
+        let page = self.mem.pages.get_mut(&page_id).ok_or(Error::NotFound)?;
+        page.theme = theme;
         let page = page.clone();
         self.write_object(page_id, Object::Page(page), None).await?;
         Ok(())

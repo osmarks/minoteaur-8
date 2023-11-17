@@ -166,7 +166,7 @@
     :global(pre)
         padding: 4px
 
-    select
+    :global(select)
         border-radius: 0
         border: 1px solid gray
 </style>
@@ -180,7 +180,7 @@
     import Index from "./Index.svelte"
     import RevisionHistory from "./RevisionHistory.svelte"
     import ShortPageDescription from "./ShortPageDescription.svelte"
-    import { registerShortcut, generalStorage } from "./util.js"
+    import { registerShortcut, generalStorage, config } from "./util.js"
     import Wikilink from "./Wikilink.svelte"
     import LinkButton from "./LinkButton.svelte"
     import Error from "./Error.svelte"
@@ -207,6 +207,7 @@
     var searchMode = false
     var currentPage
     var lastError
+    $: extraCSS = (page && page.theme && $config && $config.themes[page.theme]) || ""
 
     history.scrollRestoration = "manual"
     const scrollHeights = {}
@@ -382,6 +383,7 @@
     registerShortcut("v", () => switchPageState(""))
 </script>
 
+<svelte:head>{@html `<style>${extraCSS}</style>`}</svelte:head>
 <svelte:window on:hashchange={updateRoute} on:resize={recomputeVertical} on:error={e => { lastError = e }} on:unhandledrejection={e => { lastError = e.reason }} />
 
 {#if lastError}
@@ -449,7 +451,7 @@
     {#if page}
         <div class="meta hide-in-print" class:sidebar={!vertical}>
             {#key page.id}
-                <MetadataSidebar page={page} />
+                <MetadataSidebar bind:page={page} />
             {/key}
         </div>
     {/if}

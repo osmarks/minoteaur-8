@@ -106,7 +106,9 @@ enum APIReq {
     DeleteFile(Ulid, String),
     SetIcon(Ulid, Option<String>),
     UpdatePageRetroactive(Ulid, String, i64),
-    SetStructuredData(Ulid, structured_data::PageData)
+    SetStructuredData(Ulid, structured_data::PageData),
+    GetConfig,
+    SetTheme(Ulid, Option<String>)
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -133,7 +135,9 @@ enum APIRes {
     IndexPage { recent_changes: Vec<(RevisionHeader, PageMeta)>, random_pages: Vec<PageMeta>, dead_links: Vec<(Ulid, String, util::Slug, String)>, stats: Stats },
     FileDeleted,
     IconSet,
-    StructuredDataSet
+    StructuredDataSet,
+    Config(util::Config),
+    ThemeSet
 }
 
 async fn file_upload(mut multipart: Multipart, Path(page_id): Path<Ulid>, Extension(db): Extension<DBHandle>) -> Result<Json<Vec<storage::File>>> {
@@ -340,6 +344,14 @@ async fn api(Json(input): Json<APIReq>, Extension(db): Extension<DBHandle>) -> R
             let mut db = db.write().await;
             db.set_structured_data(page, data).await?;
             Ok(Json(APIRes::StructuredDataSet))
-        }
+        },
+        APIReq::GetConfig => {
+            Ok(Json(APIRes::Config(util::CONFIG.clone())))
+        },
+        APIReq::SetTheme(page, theme) => {
+            let mut db = db.write().await;
+            db.set_theme(page, theme).await?;
+            Ok(Json(APIRes::ThemeSet))
+        },
     }
 }

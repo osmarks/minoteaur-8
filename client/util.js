@@ -1,6 +1,8 @@
 import { format, formatDistanceToNowStrict } from "date-fns"
 import localforage from "localforage"
-import { onDestroy } from 'svelte'
+import { onDestroy } from "svelte"
+import { readable } from "svelte/store"
+import rpc from "./rpc"
 
 export let setRoute = (...parts) => {
     window.location.hash = "#/" + parts.map(encodeURIComponent).join("/")
@@ -66,3 +68,8 @@ const palette = [0x8dd3c7, 0xffffb3, 0xbebada, 0xfb8072, 0x80b1d3, 0xfdb462, 0x3
 const applyOffset = (i, x) => Math.min(Math.max(ihash(i) % 16 - 8 + x, 0), 255)
 const offsetColor = (i, x) => applyOffset(i, (x >> 16) & 0xFF) << 16 | applyOffset(i + 1, (x >> 8) & 0xFF) << 8 | applyOffset(i + 2, x & 0xFF)
 const numToHexCol = x => "#" + x.toString(16).padStart(6, "0")
+
+export const config = readable(null, async set => {
+    set(await rpc("GetConfig"))
+    console.log("Config loaded")
+})

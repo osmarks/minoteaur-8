@@ -1,7 +1,7 @@
 //import { encode, decode } from "@msgpack/msgpack"
 
 export default async (cmd, args) => {
-    const req = await fetch("/api", { method: "POST", body: JSON.stringify({ [cmd]: args }), headers: {"Content-Type": "application/json"} })
+    const req = await fetch("/api", { method: "POST", body: JSON.stringify(args ? { [cmd]: args } : cmd), headers: {"Content-Type": "application/json"} })
     if (!req.ok) {
         var text = await req.text()
         try {

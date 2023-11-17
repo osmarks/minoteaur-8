@@ -7,3 +7,10 @@ allow_backdate = true
 '\Cov' = '\mathrm{Cov}'
 '\Var' = '\mathrm{Var}'
 '\ip' = '\left\langle #1 , #2 \right\rangle'
+
+[themes]
+pink = """
+* {
+    color: pink;
+}
+"""

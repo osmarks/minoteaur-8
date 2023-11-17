@@ -8,7 +8,7 @@ use triple_accel::levenshtein::*;
 use anyhow::{Result, Context};
 use itertools::Itertools;
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Serialize, Debug, Clone)]
 #[serde(default)]
 pub struct TitleSearchConfig {
     pub max_results: usize,
@@ -27,7 +27,7 @@ impl Default for TitleSearchConfig {
     }
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Serialize, Debug, Clone)]
 #[serde(default)]
 pub struct PathsConfig {
     pub magic_db: String,
@@ -44,7 +44,7 @@ impl Default for PathsConfig {
     }
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Serialize, Debug, Clone)]
 #[serde(default)]
 pub struct SnippetConfig {
     pub lines_target: usize,
@@ -59,7 +59,7 @@ impl Default for SnippetConfig {
     }
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Serialize, Debug, Clone)]
 #[serde(default)]
 pub struct SearchConfig {
     pub k_1: f64,
@@ -76,7 +76,7 @@ impl Default for SearchConfig {
     }
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Serialize, Debug, Clone)]
 #[serde(default)]
 pub struct Config {
     pub title_search: TitleSearchConfig,
@@ -89,6 +89,7 @@ pub struct Config {
     pub max_edit_distance: u32,
     pub max_search_results: usize,
     pub katex_macros: HashMap<String, String>,
+    pub themes: HashMap<String, String>
 }
 impl Default for Config {
     fn default() -> Self {
@@ -102,7 +103,8 @@ impl Default for Config {
             allow_backdate: false,
             max_edit_distance: 512,
             max_search_results: 64,
-            katex_macros: HashMap::new()
+            katex_macros: HashMap::new(),
+            themes: HashMap::new()
         }
     }
 }

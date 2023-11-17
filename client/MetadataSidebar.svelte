@@ -61,6 +61,15 @@
     <div>Created {formatDate(page.created)}.</div>
     <div>Updated {formatDate(page.updated)}.</div>
     <div>{applyMetricPrefix(page.size.bytes, "B")}, {applyMetricPrefix(page.size.words, "")} words, {applyMetricPrefix(page.size.lines, "")} lines.</div>
+    <div>
+        Theme:
+        <select bind:value={page.theme} on:change={setTheme}>
+            <option></option>
+            {#each Object.keys($config.themes) as theme}
+                <option>{theme}</option>
+            {/each}
+        </select>
+    </div>
 
     {#if page.backlinks.length > 0}
         <h2>Backlinks</h2>
@@ -79,9 +88,9 @@
 </div>
 
 <script>
-    import autosize from 'svelte-autosize';
+    import autosize from "svelte-autosize";
 
-    import { formatDate, applyMetricPrefix, submitIfEnterKey } from "./util.js"
+    import { formatDate, applyMetricPrefix, submitIfEnterKey, config } from "./util.js"
     import Loading from "./Loading.svelte"
     import Error from "./Error.svelte"
     import rpc from "./rpc.js"
@@ -126,6 +135,7 @@
             structuredDataText = structuredDataToText(page.structured_data)
             editingStructuredData = true
         }
+        page = page
     }
 
     const keydown = event => {
@@ -147,12 +157,14 @@
         }
         addingName = false
         newName = ""
+        page = page
     }
 
     const addTag = async () => {
         if (addingTag) return
         addingTag = true
         page.tags = page.tags.concat([await rpc("AddTag", [page.id, newTag])])
+        page = page
         addingTag = false
         newTag = ""
     }
@@ -161,6 +173,7 @@
         addingTag = true
         const slug = await rpc("RemoveTag", [page.id, tag])
         page.tags = page.tags.filter(x => x !== slug)
+        page = page
         addingTag = false
     }
     const removeName = async name => {
@@ -168,6 +181,12 @@
         addingName = true
         await rpc("RemoveName", [page.id, name])
         page.names = page.names.filter(x => x !== name)
+        page = page
         addingName = false
+    }
+    const setTheme = async () => {
+        console.log("set", page.theme)
+        await rpc("SetTheme", [page.id, page.theme])
+        page = page
     }
 </script>

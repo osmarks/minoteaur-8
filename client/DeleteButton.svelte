@@ -9,4 +9,4 @@
     export let onclick
 </script>
 
-<span on:click={onclick} title="Remove">🞪</span>
+<span on:click={onclick} on:keydown={onclick} title="Remove">🞪</span>
