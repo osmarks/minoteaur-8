@@ -329,25 +329,30 @@
     }
 
     var searchQuery
+    var searchResultsDesired = true
     var searchResults
     var searchOrder = "Relevance"
     var searchReverse = false
     var searchOrderField = ""
 
-    const debounce = (func, timeout = 200) => {
+    const debounce = (func, timeout = 200, raw = () => {}) => {
         let timer
         return () => {
+            raw()
             clearTimeout(timer)
             timer = setTimeout(() => { func.apply(this) }, timeout)
-        };
+        }
     }
     const searchInputHandler = debounce(async () => {
         if (searchQuery) {
-            searchResults = await rpc("Search", [searchQuery, searchOrder === "Field" ? {"Data": searchOrderField} : searchOrder, searchReverse])
+            const results = await rpc("Search", [searchQuery, searchOrder === "Field" ? {"Data": searchOrderField} : searchOrder, searchReverse])
+            if (searchResultsDesired) {
+                searchResults = results
+            }
         } else {
             searchResults = { title_matches: [], content_matches: [] }
         }
-    })
+    }, 200, () => { searchResultsDesired = true })
 
     const searchKeypress = ev => {
         if (ev.key === "Enter" && searchResults) {
@@ -369,6 +374,7 @@
 
     const hideSearchResults = async () => {
         if (searchResults && clearButton) {
+            searchResultsDesired = false
             searchResults.content_matches = []
             await tick()
             clearButton.scrollIntoView()
