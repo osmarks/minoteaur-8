@@ -221,7 +221,11 @@
             const match = /^(\s*)([*+-]|\d+[).])/.exec(editor.value.slice(lastLineStart, nextLineStart))
             let line = editor.value.substr(lastLineStart)
             if (ev.shiftKey) {
+                const original = line
                 line = line.replace(/^  /, "")
+                if (match && original === line) {
+                    line = ""
+                }
             } else {
                 line = "  " + line
             }

@@ -1,7 +1,7 @@
 use pulldown_cmark::{html, Options, Parser, Event, Tag, escape::{self, StrWrite}, CodeBlockKind, CowStr, LinkType};
 use rusty_ulid::Ulid;
 use quick_js::Context;
-use std::{time, sync::Arc};
+use std::time;
 use regex::Regex;
 use std::ops::Range;
 use std::collections::VecDeque;
@@ -41,6 +41,7 @@ fn strip_paragraphs<'a, I: Iterator<Item=ExtEvent<'a>>>(i: I) -> impl Iterator<I
     })
 }
 
+#[derive(Debug)]
 enum SpecialSyntaxMarker {
     Wikilink,
     InlineMaths,
@@ -100,7 +101,7 @@ impl<'a, I> Iterator for MarkdownReparser<'a, I> where I: Iterator<Item=(Event<'
 
     fn next(&mut self) -> Option<Self::Item> {
         // this probably does not need to be 10, but it does need to be something
-        if self.output_buffer.len() < 10 {
+        while self.output_buffer.len() < 10 {
             if let Some((event, range)) = self.stream.next() {
                 match &event {
                     Event::Text(_) | Event::Code(_) => (),
@@ -198,6 +199,8 @@ impl<'a, I> Iterator for MarkdownReparser<'a, I> where I: Iterator<Item=(Event<'
                         self.output_buffer.push_back(ExtEvent::Event(event));
                     }
                 }
+            } else {
+                break
             }
         }
         self.output_buffer.pop_front()
