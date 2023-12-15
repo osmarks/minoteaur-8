@@ -70,6 +70,9 @@
             {/each}
         </select>
     </div>
+    <div>
+        Title: <input bind:value={newTitle} on:keydown={submitIfEnterKey(setTitle)} /><button on:click={setTitle}>Set</button>
+    </div>
 
     {#if page.backlinks.length > 0}
         <h2>Backlinks</h2>
@@ -106,6 +109,7 @@
     var alreadyExists
     var editingStructuredData = false
     var structuredDataText
+    var newTitle = page.title
 
     const structuredDataToText = kvpairs => kvpairs.map(([k, v]) => `${k} ${Object.values(v)[0]}`).join("\n")
     const textToStructuredData = text => {
@@ -185,8 +189,11 @@
         addingName = false
     }
     const setTheme = async () => {
-        console.log("set", page.theme)
         await rpc("SetTheme", [page.id, page.theme])
+        page = page
+    }
+    const setTitle = async () => {
+        await rpc("Rename", [page.id, newTitle])
         page = page
     }
 </script>

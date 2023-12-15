@@ -328,7 +328,7 @@
         unparseURL(["page", page])
     }
 
-    var searchQuery
+    var searchQuery = ""
     var searchResultsDesired = true
     var searchResults
     var searchOrder = "Relevance"

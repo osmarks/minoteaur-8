@@ -100,7 +100,8 @@ pub enum RevisionType {
     RemoveFile(String),
     SetIconFilename(Option<String>),
     SetStructuredData(StructuredData),
-    SetTheme(Option<String>)
+    SetTheme(Option<String>),
+    Rename(String)
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -519,6 +520,16 @@ impl DB {
         self.push_revision(page_id, RevisionType::SetStructuredData(data.clone()), None).await?;
         let page = self.mem.pages.get_mut(&page_id).ok_or(Error::NotFound)?;
         page.structured_data = data;
+        let page = page.clone();
+        self.write_object(page_id, Object::Page(page), None).await?;
+        Ok(())
+    }
+
+    pub async fn rename(&mut self, page_id: Ulid, new_name: String) -> Result<()> {
+        self.push_revision(page_id, RevisionType::Rename(new_name.clone()), None).await?;
+        self.add_name(page_id, new_name.clone()).await?;
+        let page = self.mem.pages.get_mut(&page_id).ok_or(Error::NotFound)?;
+        page.title = new_name;
         let page = page.clone();
         self.write_object(page_id, Object::Page(page), None).await?;
         Ok(())

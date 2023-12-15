@@ -108,7 +108,8 @@ enum APIReq {
     UpdatePageRetroactive(Ulid, String, i64),
     SetStructuredData(Ulid, structured_data::PageData),
     GetConfig,
-    SetTheme(Ulid, Option<String>)
+    SetTheme(Ulid, Option<String>),
+    Rename(Ulid, String)
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -137,7 +138,8 @@ enum APIRes {
     IconSet,
     StructuredDataSet,
     Config(util::Config),
-    ThemeSet
+    ThemeSet,
+    Renamed(String)
 }
 
 async fn file_upload(mut multipart: Multipart, Path(page_id): Path<Ulid>, Extension(db): Extension<DBHandle>) -> Result<Json<Vec<storage::File>>> {
@@ -353,5 +355,10 @@ async fn api(Json(input): Json<APIReq>, Extension(db): Extension<DBHandle>) -> R
             db.set_theme(page, theme).await?;
             Ok(Json(APIRes::ThemeSet))
         },
+        APIReq::Rename(page, new_name) => {
+            let mut db = db.write().await;
+            db.rename(page, new_name.clone()).await?;
+            Ok(Json(APIRes::Renamed(new_name)))
+        }
     }
 }

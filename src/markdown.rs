@@ -1,9 +1,10 @@
 use pulldown_cmark::{html, Options, Parser, Event, Tag, escape::{self, StrWrite}, CodeBlockKind, CowStr, LinkType};
-use smallvec::SmallVec;
 use rusty_ulid::Ulid;
 use quick_js::Context;
-use std::time;
+use std::{time, sync::Arc};
 use regex::Regex;
+use std::ops::Range;
+use std::collections::VecDeque;
 
 use crate::storage::DB;
 use crate::util;
@@ -61,6 +62,148 @@ lazy_static::lazy_static! {
     static ref URL_REGEX: Regex = Regex::new(r#"(https?://)[^\s/$.?#].[^\s]*[^.^\s]"#).unwrap();
 }
 
+struct MarkdownReparser<'a, I> {
+    stream: I,
+    input: &'a str,
+    text_buffer: VecDeque<CowStr<'a>>,
+    output_buffer: VecDeque<ExtEvent<'a>>,
+    code_block: Option<(String, CustomCodeblockType)>,
+    image_content: Option<Vec<Event<'a>>>
+}
+
+impl<'a, I> MarkdownReparser<'a, I> {
+    fn empty_text_buffer(&mut self) {
+        let mut buffer = String::new();
+        while let Some(x) = self.text_buffer.pop_front() {
+            buffer.push_str(&*x);
+        }
+        if buffer.is_empty() {
+            return;
+        }
+        let mut text = buffer.as_str();
+        while let Some(re_match) = URL_REGEX.find(&text) {
+            let leading = &text[..re_match.start()];
+            self.output_buffer.push_back(ExtEvent::Event(Event::Text(CowStr::from(leading.to_string()))));
+            let link_target = re_match.as_str().to_string();
+            self.output_buffer.push_back(ExtEvent::Event(Event::Start(Tag::Link(LinkType::Inline, CowStr::from(link_target.clone()), "".into()))));
+            self.output_buffer.push_back(ExtEvent::Event(Event::Text(CowStr::from(link_target.clone()))));
+            self.output_buffer.push_back(ExtEvent::Event(Event::End(Tag::Link(LinkType::Inline, CowStr::from(link_target.clone()), "".into()))));
+            text = &text[re_match.end()..];
+        }
+        // unnecessary allocation in case of no links, suffer, etc
+        self.output_buffer.push_back(ExtEvent::Event(Event::Text(text.to_string().into())))
+    }
+}
+
+impl<'a, I> Iterator for MarkdownReparser<'a, I> where I: Iterator<Item=(Event<'a>, Range<usize>)> {
+    type Item = ExtEvent<'a>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        // this probably does not need to be 10, but it does need to be something
+        if self.output_buffer.len() < 10 {
+            if let Some((event, range)) = self.stream.next() {
+                match &event {
+                    Event::Text(_) | Event::Code(_) => (),
+                    _ => self.empty_text_buffer()
+                }
+                if is_event_start_of_block_element(&event) {
+                    self.output_buffer.push_back(ExtEvent::Position(range.start));
+                }
+                match event {
+                    Event::Start(Tag::Image(_, _, _)) => {
+                        self.image_content = Some(vec![]);
+                    },
+                    Event::End(Tag::Image(link_type, dest, title)) if self.image_content.is_some() => {
+                        let image_content = std::mem::replace(&mut self.image_content, None).unwrap();
+                        let is_captioned = image_content.get(0).map(|x| if let Event::Text(text) = x { text.starts_with("^") } else { false }).unwrap_or(false);
+                        if is_captioned {
+                            self.output_buffer.push_back(ExtEvent::CaptionImageStart(dest, title));
+                            let image_tag = &self.input[range.clone()];
+                            let content_start = "![^".len();
+                            let content_end = image_tag.rfind("](").unwrap();
+                            self.output_buffer.extend(strip_paragraphs(parse(&image_tag[content_start..content_end])));
+                            self.output_buffer.push_back(ExtEvent::CaptionImageEnd);
+                        } else {
+                            self.output_buffer.push_back(ExtEvent::Event(Event::Start(Tag::Image(link_type, dest.clone(), title.clone()))));
+                            self.output_buffer.extend(image_content.into_iter().map(ExtEvent::Event));
+                            self.output_buffer.push_back(ExtEvent::Event(Event::End(Tag::Image(link_type, dest, title))));
+                        }
+                    },
+                    event if self.image_content.is_some() => {
+                        self.image_content.as_mut().unwrap().push(event);
+                    },
+                    Event::Start(Tag::CodeBlock(CodeBlockKind::Fenced(lang))) if &*lang == "maths" || &*lang == "math" => {
+                        self.code_block = Some((String::new(), CustomCodeblockType::Maths));
+                    },
+                    Event::Start(Tag::CodeBlock(CodeBlockKind::Fenced(lang))) if &*lang == "serverjs" => {
+                        self.code_block = Some((String::new(), CustomCodeblockType::ServerJS));
+                    },
+                    Event::End(Tag::CodeBlock(CodeBlockKind::Fenced(_))) if self.code_block.is_some() => { // codeblocks cannot contain other events, so this is valid
+                        if let Some((content, kind)) = std::mem::replace(&mut self.code_block, None) {
+                            match kind {
+                                CustomCodeblockType::Maths => self.output_buffer.push_back(ExtEvent::Maths(true, content)),
+                                CustomCodeblockType::ServerJS => self.output_buffer.push_back(ExtEvent::ServerJS(content))
+                            }
+                        } else {
+                            unreachable!()
+                        }
+                    },
+                    Event::Code(code) => {
+                        match self.text_buffer.pop_back() {
+                            Some(text) => {
+                                if let Some((index, last_char)) = text.char_indices().last() {
+                                    if let Some(special_syntax_type) = special_marker_char(last_char) {
+                                        let previous_text = CowStr::from(text[..index].to_string()); // could probably avoid copying
+                                        self.text_buffer.push_back(previous_text);
+                                        self.empty_text_buffer();
+                                        match special_syntax_type {
+                                            SpecialSyntaxMarker::InlineMaths => self.output_buffer.push_back(ExtEvent::Maths(false, code.to_string())),
+                                            SpecialSyntaxMarker::Redaction => self.output_buffer.push_back(ExtEvent::Redaction(code.to_string())),
+                                            SpecialSyntaxMarker::Wikilink => {
+                                                let link = match code.split_once(&[':', '|']) {
+                                                    Some((target, display_name)) => {
+                                                        match target.split_once('?') {
+                                                            Some((target, tag_spec)) => ExtEvent::Wikilink(target.to_string(), display_name.to_string(), Some(tag_spec.to_string())),
+                                                            None => ExtEvent::Wikilink(target.to_string(), display_name.to_string(), None)
+                                                        }
+                                                    },
+                                                    None => ExtEvent::Wikilink(code.to_string(), code.to_string(), None)
+                                                };
+                                                self.output_buffer.push_back(link);
+                                            }
+                                        }
+                                    } else {
+                                        self.text_buffer.push_back(text);
+                                        self.empty_text_buffer();
+                                        self.output_buffer.push_back(ExtEvent::Event(Event::Code(code)));
+                                    }
+                                } else {
+                                    self.empty_text_buffer();
+                                    self.output_buffer.push_back(ExtEvent::Event(Event::Code(code)));
+                                }
+                            },
+                            None => {
+                                self.output_buffer.push_back(ExtEvent::Event(Event::Code(code)));
+                            }
+                        }
+                    },
+                    Event::Text(text) => {
+                        if let Some((ref mut code, _)) = self.code_block {
+                            code.push_str(&*text)
+                        } else {
+                            self.text_buffer.push_back(text);
+                        }
+                    },
+                    event => {
+                        self.output_buffer.push_back(ExtEvent::Event(event));
+                    }
+                }
+            }
+        }
+        self.output_buffer.pop_front()
+    }
+}
+
 fn parse<'a>(input: &'a str) -> impl Iterator<Item=ExtEvent<'a>> {
     let mut options = Options::empty();
     options.insert(Options::ENABLE_STRIKETHROUGH);
@@ -68,121 +211,15 @@ fn parse<'a>(input: &'a str) -> impl Iterator<Item=ExtEvent<'a>> {
     options.insert(Options::ENABLE_TASKLISTS);
     options.insert(Options::ENABLE_HEADING_ATTRIBUTES);
     options.insert(Options::ENABLE_FOOTNOTES);
-    let mut last_text: Option<CowStr<'a>> = None;
-    let mut code_block = None;
-    let mut image_content = None;
-    Parser::new_ext(input, options).into_offset_iter().flat_map(move |(event, range)| {
-        let mut resulting_events: SmallVec<[ExtEvent<'a>; 3]> = SmallVec::new();
-        match (&event, &last_text) {
-            (Event::Code(_), _) => (),
-            (_, Some(_last)) => {
-                let mut text = std::mem::replace(&mut last_text, None).unwrap();
-                while let Some(re_match) = URL_REGEX.find(&text) {
-                    // this shouldn't really have to allocate but I don't know how to make it not do that
-                    let leading = &text[..re_match.start()];
-                    resulting_events.push(ExtEvent::Event(Event::Text(CowStr::from(leading.to_string()))));
-                    let link_target = re_match.as_str().to_string();
-                    resulting_events.push(ExtEvent::Event(Event::Start(Tag::Link(LinkType::Inline, CowStr::from(link_target.clone()), "".into()))));
-                    resulting_events.push(ExtEvent::Event(Event::Text(CowStr::from(link_target.clone()))));
-                    resulting_events.push(ExtEvent::Event(Event::End(Tag::Link(LinkType::Inline, CowStr::from(link_target.clone()), "".into()))));
-                    let trailing = &text[re_match.end()..];
-                    text = CowStr::from(trailing.to_string());
-                }
-                resulting_events.push(ExtEvent::Event(Event::Text(text)));
-            },
-            _ => ()
-        }
-        if is_event_start_of_block_element(&event) {
-            resulting_events.push(ExtEvent::Position(range.start));
-        }
-        match event {
-            Event::Start(Tag::Image(_, _, _)) => {
-                image_content = Some(vec![]);
-            },
-            Event::End(Tag::Image(link_type, dest, title)) if image_content.is_some() => {
-                let image_content = std::mem::replace(&mut image_content, None).unwrap();
-                let is_captioned = image_content.get(0).map(|x| if let Event::Text(text) = x { text.starts_with("^") } else { false }).unwrap_or(false);
-                if is_captioned {
-                    resulting_events.push(ExtEvent::CaptionImageStart(dest, title));
-                    let image_tag = &input[range.clone()];
-                    let content_start = "![^".len();
-                    let content_end = image_tag.rfind("](").unwrap();
-                    resulting_events.extend(strip_paragraphs(parse(&image_tag[content_start..content_end])));
-                    resulting_events.push(ExtEvent::CaptionImageEnd);
-                } else {
-                    resulting_events.push(ExtEvent::Event(Event::Start(Tag::Image(link_type, dest.clone(), title.clone()))));
-                    resulting_events.extend(image_content.into_iter().map(ExtEvent::Event));
-                    resulting_events.push(ExtEvent::Event(Event::End(Tag::Image(link_type, dest, title))));
-                }
-            },
-            event if image_content.is_some() => {
-                image_content.as_mut().unwrap().push(event);
-            },
-            Event::Start(Tag::CodeBlock(CodeBlockKind::Fenced(lang))) if &*lang == "maths" || &*lang == "math" => {
-                code_block = Some((String::new(), CustomCodeblockType::Maths));
-            },
-            Event::Start(Tag::CodeBlock(CodeBlockKind::Fenced(lang))) if &*lang == "serverjs" => {
-                code_block = Some((String::new(), CustomCodeblockType::ServerJS));
-            },
-            Event::End(Tag::CodeBlock(CodeBlockKind::Fenced(_))) if code_block.is_some() => { // codeblocks cannot contain other events, so this is valid
-                if let Some((content, kind)) = std::mem::replace(&mut code_block, None) {
-                    match kind {
-                        CustomCodeblockType::Maths => resulting_events.push(ExtEvent::Maths(true, content)),
-                        CustomCodeblockType::ServerJS => resulting_events.push(ExtEvent::ServerJS(content))
-                    }
-                } else {
-                    unreachable!()
-                }
-            },
-            Event::Code(code) => {
-                match std::mem::replace(&mut last_text, None) {
-                    Some(text) => {
-                        if let Some((index, last_char)) = text.char_indices().last() {
-                            if let Some(special_syntax_type) = special_marker_char(last_char) {
-                                let previous_text = CowStr::from(text[..index].to_string()); // could probably avoid copying
-                                resulting_events.push(ExtEvent::Event(Event::Text(previous_text)));
-                                match special_syntax_type {
-                                    SpecialSyntaxMarker::InlineMaths => resulting_events.push(ExtEvent::Maths(false, code.to_string())),
-                                    SpecialSyntaxMarker::Redaction => resulting_events.push(ExtEvent::Redaction(code.to_string())),
-                                    SpecialSyntaxMarker::Wikilink => {
-                                        let link = match code.split_once(&[':', '|']) {
-                                            Some((target, display_name)) => {
-                                                match target.split_once('?') {
-                                                    Some((target, tag_spec)) => ExtEvent::Wikilink(target.to_string(), display_name.to_string(), Some(tag_spec.to_string())),
-                                                    None => ExtEvent::Wikilink(target.to_string(), display_name.to_string(), None)
-                                                }
-                                            },
-                                            None => ExtEvent::Wikilink(code.to_string(), code.to_string(), None)
-                                        };
-                                        resulting_events.push(link);
-                                    }
-                                }
-                            } else {
-                                resulting_events.push(ExtEvent::Event(Event::Text(text.into())));
-                                resulting_events.push(ExtEvent::Event(Event::Code(code)));
-                            }
-                        } else {
-                            resulting_events.push(ExtEvent::Event(Event::Code(code)));
-                        }
-                    },
-                    None => {
-                        resulting_events.push(ExtEvent::Event(Event::Code(code)));
-                    }
-                }
-            },
-            Event::Text(text) => {
-                if let Some((ref mut code, _)) = code_block {
-                    code.push_str(&*text)
-                } else {
-                    last_text = Some(text);
-                }
-            },
-            event => {
-                resulting_events.push(ExtEvent::Event(event));
-            }
-        }
-        resulting_events
-    })
+    let mdr = MarkdownReparser {
+        stream: Parser::new_ext(input, options).into_offset_iter(),
+        input,
+        text_buffer: VecDeque::new(),
+        output_buffer: VecDeque::new(),
+        code_block: None,
+        image_content: None
+    };
+    mdr
 }
 
 fn is_block_element(tag: &Tag) -> bool {
