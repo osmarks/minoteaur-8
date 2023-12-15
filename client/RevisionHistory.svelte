@@ -51,6 +51,10 @@
                 Set icon to <a href={`/file/${rev.page}/${encodeURIComponent(rev.ty.SetIconFilename)}`}>{rev.ty.SetIconFilename}</a>.
             {:else if "SetStructuredData" in rev.ty}
                 Updated structured data to <StructuredDataView kvPairs={rev.ty.SetStructuredData} inline={true} />.
+            {:else if "SetTheme" in rev.ty}
+                Set theme to {rev.ty.SetTheme || "none"}.
+            {:else if "Rename" in rev.ty}
+                Set title to {rev.ty.Rename}.
             {/if}
         </li>
     {/each}

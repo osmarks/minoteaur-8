@@ -202,7 +202,8 @@
         const search = "\n" + editor.value.substr(0, selStart)
         // this is missing the + 1 that the enter key listener has. I forgot why. Good luck working out this!
         const lastLineStart = search.lastIndexOf("\n")
-        const nextLineStart = selStart + (editor.value.substr(selStart) + "\n").indexOf("\n")
+        const findNextLineStart = () => selStart + (editor.value.substr(selStart) + "\n").indexOf("\n")
+        const nextLineStart = findNextLineStart()
         if (ev.code === "Backspace") {
             // detect if backspacing the start of a list line
             const re = /^\s*([*+-]|\d+[).])\s*$/y
@@ -227,6 +228,9 @@
             if (match) {
                 editor.value = editor.value.substr(0, lastLineStart) + line
                 editor.selectionStart = editor.selectionEnd = selStart + (ev.shiftKey ? -2 : 2)
+                if (editor.selectionStart < lastLineStart) {
+                    editor.selectionStart = editor.selectionEnd = lastLineStart
+                }
                 //resize()
                 ev.preventDefault()
             }

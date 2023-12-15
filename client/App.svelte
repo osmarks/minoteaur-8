@@ -17,6 +17,7 @@
     @mixin header
         border-bottom: 1px solid gray
         margin: 0
+        margin-top: 0.5em
         margin-bottom: 0.5em
         font-weight: 500
         //a
@@ -102,9 +103,6 @@
     :global(.snippet p)
         margin: 0
 
-    :global(nav)
-        margin-bottom: 0.5em
-
     :global(.footnote-definition > p)
         display: inline-block
 
@@ -189,13 +187,9 @@
     import MetadataSidebar from "./MetadataSidebar.svelte"
 
     let vertical
-    // This is a somewhat horrible hack, but I wanted to simultaneously support desktop windows becoming vertical and phone screens.
-    // Just checking screen.orientation doesn't work on desktop and just checking innerHeight/innerWidth breaks if I use a virtual keyboard.
-    // I also found out that for some horrifying reason switching my window manager out has made Firefox always consider my screen orientation "portrait-primary"
-    // So I guess just assume all touchscreens are phones.
-    // I am very sorry.
+    // I realize now that I should not filter based on vertical-or-not but screen width. This is probably a reasonable figure.
     const recomputeVertical = () => {
-        vertical = "ontouchstart" in window || window.innerHeight > window.innerWidth
+        vertical = window.innerWidth < 1200
     }
     recomputeVertical()
 
