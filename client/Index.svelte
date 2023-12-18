@@ -26,7 +26,6 @@
         const rewriteTree = tree => {
             const newChildren = Object.values(tree.ochildren)
             newChildren.forEach(rewriteTree)
-            tree.owncount = tree.count - newChildren.map(x => x.count).reduce((a, b) => a + b, 0)
             tree.children = newChildren
             newChildren.sort((a, b) => b.count - a.count)
         }
